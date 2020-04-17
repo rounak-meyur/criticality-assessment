@@ -1,13 +1,20 @@
-Criticality Assessment
-================
+---
+title: "Criticality Assessment"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Import necessary libraries
+library(Matrix)
+library(spatstat.utils)
+library(pracma)
+```
 
 ## Initialization
-
-First we initailize the file paths. As an example we show the analysis
-on IEEE 39 bus power system. The system has 39 buses or nodes and 46
-edges or branches. There are 10 generator buses in the system.
-
-``` r
+First we initailize the file paths. As an example we show the analysis on IEEE 39 bus power system. The system has 39 buses or nodes and 46 edges or branches. There are 10 generator buses in the system.
+```{r libs}
 # Directory paths
 path.dir <- getwd()
 data.dir <- file.path(path.dir,"src/case")
@@ -19,17 +26,8 @@ busdat <- read.csv(file.path(data.dir,"busdat39.csv"))
 ```
 
 ## Scenario generation
-
-For a N-bus power system, we define a 2N-dimensional subspace of load
-demands and generations at each of the N buses respectively. We sample
-the demands and generations such that the total demand satisfies the
-total generation in the network and the marginal distribution of each
-demand/generation follows a uniform distribution. For this purpose, we
-require to compute the limits of demands and generation at each bus in
-the system. Thereafter, the demands/generations are randomly sampled to
-generate test scenarios.
-
-``` r
+For a N-bus power system, we define a 2N-dimensional subspace of load demands and generations at each of the N buses respectively. We sample the demands and generations such that the total demand satisfies the total generation in the network and the marginal distribution of each demand/generation follows a uniform distribution. For this purpose, we require to compute the limits of demands and generation at each bus in the system. Thereafter, the demands/generations are randomly sampled to generate test scenarios.
+```{r limits}
 get.data <- function(bus,gen,branch,base=100.0)
 {
   ##################################################
@@ -82,12 +80,8 @@ data <- get.data(busdat,gendat,branchdat)
 ```
 
 ## Power Transfer Distribution Factor (PTDF)
-
-We compute the PTDF matrix for a given network. This matrix relates the
-power injections at each node in the network to flows along edges of the
-network.
-
-``` r
+We compute the PTDF matrix for a given network. This matrix relates the power injections at each node in the network to flows along edges of the network. 
+```{r PTDF}
 make.PTDF = function(bus,branch)
 {
   ##################################################
@@ -134,3 +128,9 @@ make.PTDF = function(bus,branch)
 # Compute PTDF matrix
 S <- make.PTDF(busdat,branchdat)
 ```
+
+
+
+
+
+
