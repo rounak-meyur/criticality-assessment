@@ -299,9 +299,26 @@ sample.dg <- function(limits)
   }
 }
 
-eval.scenario <- function(nodes,bus,gen,branch,base=100.0,
-                          max.iter=100,verbose=FALSE)
+eval.scenario <- function(nodes,edgeind,bus,gen,branch,
+                          base=100.0,max.iter=100,
+                          verbose=FALSE)
 {
+  ##################################################
+  # Evaluates the criticality of a scenario for a  #
+  # component in the power grid network.           #
+  #                                                #
+  # Inputs:                                        #
+  #   nodes: list of nodes in component            #
+  #   edgeind: list of branch indices in component #
+  #   bus: csv table of bus data                   #
+  #   gen: csv table of generator data             #
+  #   branch: csv table of branch data             #
+  #   base: base MVA: default to 100.0 MVA         #
+  #   max.iter: number of random iterations        # 
+  #   verbose: print outputs                       #
+  #                                                #
+  ##################################################
+  
   # Get indices of buses and generators in the component
   busind <- match(nodes,bus$bus_id)
   C <- as.matrix(gen.bus.con(bus,gen))[busind,]
@@ -314,9 +331,11 @@ eval.scenario <- function(nodes,bus,gen,branch,base=100.0,
                  "gmin"=gen$pmin[genind]/base)
   
   # Get S matrix slice for the component
-  S.comp <- S[,busind]
+  S.comp <- S[edgeind,busind]
+  flim <- branch$rateA[edgeind]
   
   # Perform the iterations
+  criticality <- 0
   iter <- 0
   while(iter<max.iter)
   {
@@ -332,15 +351,26 @@ eval.scenario <- function(nodes,bus,gen,branch,base=100.0,
       p.comp <- (C%*%gi)-di
       f.comp <- S.comp%*%p.comp
       
-      ###############################################
-      # Insert code to check whether flows within   #
-      # limits for only those edges in the component#
-      ###############################################
+      # Success/failure of line limit
+      fail <- 0
+      success <- 0
+      for(l in 1:length(edgeind))
+      {
+        range <- c(0,flim[l]*1.5)
+        if(inside.range(abs(f.comp[l]),range)) success <- success + 1
+        else fail <- fail + 1
+      }
+      
+      # Compute criticality
+      if(fail==0) criticality <- criticality + 1
+      # Other methods
+      # criticality <- criticality + success/(fail+success)
     }
     else
     {
       if(verbose) cat("Sampling is unsuccessful")
     }
   }
+  return(criticality)
 }
 ```
