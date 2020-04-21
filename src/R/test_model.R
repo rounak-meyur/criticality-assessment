@@ -17,46 +17,10 @@ library(matrixStats)
 
 #---------------------------------------------------------------------------------------------------------------------------------------------------
 get.data = function(bus, gen, branch) {
-  gens = matrix(nrow = length(unique(gendat$bus_id)), ncol = 3)
-  colnames(gens) = c("bus_id", "pmax", "pmin")
-  index = 1
-  gens[1, 1] = gendat$bus_id[1]
-  gens[1, 2] = gendat$pmax[1]
-  gens[1, 3] = gendat$pmin[1]
-  for (l in 2:nrow(gendat)) {
-    if (gendat$bus_id[l] == gendat$bus_id[l - 1]) {
-      gens[index, 2] = gens[index, 2] + gendat$pmax[l]
-      gens[index, 3] = gens[index, 3] + gendat$pmin[l]
-    } else {
-      index = index + 1
-      gens[index, 1] = gendat$bus_id[l]
-      gens[index, 2] = gendat$pmax[l]
-      gens[index, 3] = gendat$pmin[l]
-    }
-  }
-  
-  g_max = c()
-  g_min = c()
-  index = 1
-  for (l in 1:nrow(busdat)) {
-    if (index <= 485) {
-      if (busdat$bus_id[l] == gens[index, 1]) {
-        g_max = append(g_max, gens[index, 2] / 100.0)
-        g_min = append(g_min, gens[index, 3] / 100.0)
-        index = index + 1
-      } else {
-        g_max = append(g_max, 0)
-        g_min = append(g_min, 0)
-      }
-    } else {
-      g_max = append(g_max, 0)
-      g_min = append(g_min, 0)
-    }
-  }
-  
+  g_max = gen$pmax / 100.0
+  g_min = gen$pmin / 100.0
   d_min = rep(0, nrow(bus))
   d_max = bus$pd / 100.0
-  
   flim = branch$rateA / 100.0
   
   return(list("gmin" = g_min, "gmax" = g_max, "dmax" = d_max, "dmin" = d_min, "flim" = flim))
@@ -137,7 +101,7 @@ handle.islands = function(bus, branch, gen, verbose = FALSE) {
       gen$pmax[genind] = rep(0, length(genind))
     }
   }
-  return(list("bus" = bus, "gen" = gen))
+  return(list("bus" = bus, "gen" = gen, "graphs" = gs))
 }
 
 calculate.s = function(bus, branch, gen, dat) {
@@ -159,7 +123,7 @@ calculate.s = function(bus, branch, gen, dat) {
   S = matrix(0, nrow(branch), nrow(bus))
   S[,noslack] = as.matrix(Bf[, noslack]) %*% inv(as.matrix(Br[noslack, noslack]))
   
-  return(list("gmin" = dat$gmin, "gmax" = dat$gmax, "dmax" = dat$dmax, "dmin" = dat$dmin, "flim" = dat$flim, "S" = S, "bus" = all$bus, "gen" = all$gen))
+  return(list("gmin" = dat$gmin, "gmax" = dat$gmax, "dmax" = dat$dmax, "dmin" = dat$dmin, "flim" = dat$flim, "S" = S, "bus" = all$bus, "gen" = all$gen, "graphs" = all$graphs))
 }
 
 #---------------------------------------------------------------------------------------------------------------------------------------------------
@@ -174,7 +138,7 @@ iterations = 1000
 criticality = zeros(1, nrow(branchdat) + 1)
 data = get.data(busdat, gendat, branchdat)
 
-for (line_removal in 1:2) { #nrow(branchdat)
+for (line_removal in 0:1) { #nrow(branchdat)
   svMisc::progress(line_removal, nrow(branchdat))
   
   branchdat = read.csv("~/branchdat.csv")
@@ -187,53 +151,75 @@ for (line_removal in 1:2) { #nrow(branchdat)
   
   S_data = calculate.s(busdat, branchdat, gendat, data)
   
-  ind = c()
-  for (h in 1:nrow(S_data$gen)) {
-    ind = append(ind, which(S_data$bus$bus_id == S_data$gen$bus_id[h]))
-  }
+  gs = S_data$graphs
   
-  C = gen.bus.con(S_data$bus, S_data$gen)
-  
-  for (a in 1:iterations) {
-    svMisc::progress(a, iterations)
+  for (graph in gs) {
+    nodes = as_ids(V(graph))
+    busind = which(S_data$bus$bus_id %in% nodes)
+    C = as.matrix(gen.bus.con(S_data$bus, S_data$gen))[busind,]
+    genind = which(colSums(C) == 1)
     
-    d_i = c()
-    for (l in 1:nrow(S_data$bus)) {
-      d_i = append(d_i, runif(1, S_data$dmin[l], S_data$dmax[l]))
-    }
+    d_max = S_data$dmax[busind]
+    d_min = S_data$dmin[busind]
+    g_max = S_data$gmax[genind]
+    g_min = S_data$gmin[genind]
     
-    g_i = ((S_data$gmax - S_data$gmin) / sum(S_data$gmax - S_data$gmin) * (sum(d_i) - sum(S_data$gmin))) + S_data$gmin
-    
-    if (sum(d_i) > sum(g_i)) {
-      g_i = ((S_data$gmax - S_data$gmin) / sum(S_data$gmax - S_data$gmin) * (sum(d_i) - sum(S_data$gmin))) + S_data$gmin
-    }
-    
-    g_i = g_i[c(ind)]
-    
-    node_gen = C %*% g_i
-    p = node_gen - d_i
-
-    f = S_data$S %*% p
-    
-    fail = 0
-    success = 0
-    for (l in 1:nrow(branchdat)) {
-      range = c(0, S_data$flim[l] * 1.5)
-      if (inside.range(abs(f[l]), range)) {
-        success = success + 1
-      }
-      else {
-        fail = fail + 1
+    mat = as.matrix(as_edgelist(graph))
+    mat = cbind(mat, 0)
+    for (i in 1:nrow(mat)) {
+      index = which(branchdat[which(branchdat$fbus == mat[i, 1]), 2] == mat[i, 2])[1]
+      if (is.na(index)) {
+        index = which(branchdat[which(branchdat$fbus == mat[i, 2]), 2] == mat[i, 1])[1]
+        mat[i, 3] = which(branchdat$fbus == mat[i, 2])[index]
+      } else {
+        mat[i, 3] = which(branchdat$fbus == mat[i, 1])[index]
       }
     }
+    for (i in 1:(nrow(mat)-1)) {
+      if (as.numeric(mat[i, 3]) == as.numeric(mat[i+1,3])) {
+        mat[i+1,3] = as.numeric(mat[i, 3]) + 1
+      }
+    }
+    edgeind = as.numeric(as.vector(mat[,3]))
+    S.comp = S_data$S[edgeind, busind]
+    flim = S_data$flim[edgeind]
     
-    if (fail == 0) {
-      criticality[line_removal + 1] = criticality[line_removal + 1] + 1
+    for (a in 1:iterations) {
+      svMisc::progress(a, iterations)
+      
+      d_i = c()
+      for (l in 1:length(d_max)) {
+        d_i = append(d_i, runif(1, d_min[l], d_max[l]))
+      }
+      
+      if (sum(d_i) > sum(g_min)) {
+        g_i = ((g_max - g_min) / sum(g_max - g_min) * (sum(d_i) - sum(g_min))) + g_min
+        p = S %*% g_i - d_i
+        f = S.comp %*% p
+        
+        fail = 0
+        success = 0
+        for (l in 1:length(edgeind)) {
+          range = c(0, flim[l] * 1.5)
+          if (inside.range(abs(f[l]), range)) {
+            success = success + 1
+          }
+          else {
+            fail = fail + 1
+          }
+        }
+        
+        if (fail == 0) {
+          criticality[line_removal + 1] = criticality[line_removal + 1] + 1
+        }
+      } else {
+        a = a - 1
+      }
     }
   }
-  print(proc.time() - ptm)
 }
-rm(a, l)
+print(proc.time() - ptm)
+rm(a, l, h, i, index)
 criticality = criticality / iterations
 # criticality
 # sort(criticality)
