@@ -155,8 +155,8 @@ handle.islands = function(bus,branch,gen,verbose=FALSE)
   gs <- decompose(g, min.vertices = 1)
   for(t in 1:length(gs))
   {
-    if(verbose) cat("Component",t,":\n")
     nodes <- as.numeric(as_ids(V(gs[[t]])))
+    if(verbose) cat("Component",t,":",nodes,"\n")
     busind <- match(nodes,bus$bus_id)
     btypes <- bus$type[busind]
     
@@ -165,32 +165,47 @@ handle.islands = function(bus,branch,gen,verbose=FALSE)
       if(length(nodes)==1)
       {
         if(verbose) cat("Isolated node\n")
-        slack <- 1
+        bus$type[busind[1]] <- 3
+        bus$pd[busind] <- 0
       }
       else if(2%in%btypes)
       {
         if(verbose) cat("At least one PV bus\n")
         slack <- identify.slack(bus,gen,nodes)
+        bus$type[busind[slack]] <- 3
       }
       else
       {
         if(verbose) cat("No PV bus\n")
-        slack <- which(btypes==1)
+        bus$type[busind[1]] <- 3
+        bus$pd[busind] <- rep(0,length(nodes))
       }
-      # Change bus type to slack
-      bus$type[busind[slack]] <- 3
-      
-      if(verbose) cat("Following buses are converted to slack:",
-          nodes[slack],"\n")
     }
     else
     {
       if(verbose) cat("Slack bus already present\n")
     }
-    if(verbose) cat("Slack bus(es)",
+    if(verbose) cat("Slack bus:",
         nodes[which(bus$type[busind]==3)],"\n")
+    
+    # Check for the other infeasible case: 
+    # sum(dmax)<sum(gmin)
+    max.demand <- sum(bus$pd[busind])
+    C <- gen.bus.con(bus,gen)
+    min.generation <- sum(as.matrix(C%*%gen$pmin)[busind])
+    if(max.demand<min.generation)
+    {
+      if(verbose){
+        cat("Maximum demand:",max.demand," Minimum generation:",min.generation)
+        cat("\nInfeasible island. Zeroing demands and generations\n")
+      }
+      bus$pd[busind] <- rep(0,length(nodes))
+      genind <- which(colSums(as.matrix(C)[busind,])==1)
+      gen$pmin[genind] <- rep(0,length(genind))
+      gen$pmax[genind] <- rep(0,length(genind))
+    }
   }
-  bus
+  return(list("bus"=bus,"gen"=gen))
 }
 ```
 
@@ -203,37 +218,44 @@ there is no generator bus, we convert each of the buses to a slack bus.
 
     ## [1] "#### Example 1: Branch 27 outage ####"
 
-    ## Component 1 :
+    ## Component 1 : 1 2 3 4 5 6 7 8 9 10 12 13 14 15 16 17 21 22 23 25 26 28 29 39 30 18 11 31 32 24 27 35 36 37 38 
     ## Slack bus already present
-    ## Slack bus(es) 31 
-    ## Component 2 :
+    ## Slack bus: 31 
+    ## Component 2 : 19 20 33 34 
     ## At least one PV bus
-    ## Following buses are converted to slack: 33 
-    ## Slack bus(es) 33
+    ## Slack bus: 33
 
     ## [1] "#### Example 2: Branch 20 outage ####"
 
-    ## Component 1 :
+    ## Component 1 : 1 2 3 4 5 6 7 8 9 10 12 13 14 15 16 17 19 20 21 22 23 25 26 28 29 39 30 18 11 31 24 27 33 34 35 36 37 38 
     ## Slack bus already present
-    ## Slack bus(es) 31 
-    ## Component 2 :
+    ## Slack bus: 31 
+    ## Component 2 : 32 
     ## Isolated node
-    ## Following buses are converted to slack: 32 
-    ## Slack bus(es) 32
+    ## Slack bus: 32
 
     ## [1] "#### Example 3: Branch 20,27 outage ####"
 
-    ## Component 1 :
+    ## Component 1 : 1 2 3 4 5 6 7 8 9 10 12 13 14 15 16 17 21 22 23 25 26 28 29 39 30 18 11 31 24 27 35 36 37 38 
     ## Slack bus already present
-    ## Slack bus(es) 31 
-    ## Component 2 :
+    ## Slack bus: 31 
+    ## Component 2 : 19 20 33 34 
     ## At least one PV bus
-    ## Following buses are converted to slack: 33 
-    ## Slack bus(es) 33 
-    ## Component 3 :
+    ## Slack bus: 33 
+    ## Component 3 : 32 
     ## Isolated node
-    ## Following buses are converted to slack: 32 
-    ## Slack bus(es) 32
+    ## Slack bus: 32
+
+    ## [1] "#### Example 4: Branch 44,45 outage, minimum generation of Gen 9: 300 MW ####"
+
+    ## Component 1 : 1 2 3 4 5 6 7 8 9 10 12 13 14 15 16 17 19 20 21 22 23 25 26 28 39 30 18 11 31 32 24 27 33 34 35 36 37 
+    ## Slack bus already present
+    ## Slack bus: 31 
+    ## Component 2 : 29 38 
+    ## At least one PV bus
+    ## Slack bus: 38 
+    ## Maximum demand: 283.5  Minimum generation: 300
+    ## Infeasible island. Zeroing demands and generations
 
 ## Power Transfer Distribution Factor (PTDF)
 
