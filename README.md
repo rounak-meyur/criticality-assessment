@@ -18,55 +18,9 @@ gendat <- read.csv(file.path(data.dir,"gendat39.csv"))
 busdat <- read.csv(file.path(data.dir,"busdat39.csv"))
 ```
 
-## Scenario generation
-
-For a N-bus power system, we define a 2N-dimensional subspace of load
-demands and generations at each of the N buses respectively. We sample
-the demands and generations such that the total demand satisfies the
-total generation in the network and the marginal distribution of each
-demand/generation follows a uniform distribution. For this purpose, we
-require to compute the limits of demands and generation at each bus in
-the system. Thereafter, the demands/generations are randomly sampled to
-generate test scenarios.
+## Bus to generator connection matrix
 
 ``` r
-get.data <- function(bus,gen,branch,base=100.0)
-{
-  ##################################################
-  # Computes the generation/demand limits at each  #
-  # bus in the power system and returns as a list  #
-  # object. It also returns the flow limit at each #
-  # branch in the network.                         #
-  #                                                #
-  # Inputs:                                        #
-  #   bus: csv table of bus data                   #
-  #   gen: csv table of generator data             #
-  #   branch: csv table of branch data             #
-  #   base: base MVA, default value is 100.0 MVA   #
-  #                                                #
-  # Returns:                                       #
-  #   data: a list object with gmin, gmax, dmin,   #
-  #         dmax, flim representing minimum and    #
-  #         maximum generation, demand and maximum #
-  #         flow limits.                           #
-  #                                                #
-  ##################################################
-  # Construct the gmin and gmax vectors
-  gmax <- gen$pmax/base
-  gmin <- gen$pmin/base
-  
-  # Construct the dmin and dmax vectors
-  dmin <- rep(0,nb)
-  dmax <- bus$pd/base
-  
-  # Construct the line rating vector
-  flim <- branch$rateA/base
-  
-  # Return as an object
-  return(list("gmin"=gmin,"gmax"=gmax,"dmax"=dmax,
-              "dmin"=dmin,"flim"=flim))
-}
-
 gen.bus.con <- function(bus,gen)
 {
   ##################################################
@@ -309,4 +263,84 @@ make.PTDF = function(bus,branch,gen)
 
 # Compute PTDF matrix
 S <- make.PTDF(busdat,branchdat,gendat)
+```
+
+## Sample space and scenario generation
+
+For a N-bus power system with Ng generators, we define a
+(N+Ng)-dimensional subspace of load demands and generations. We sample
+the demands and generations such that the total demand satisfies the
+total generation in the network and the marginal distribution of each
+demand/generation follows a uniform distribution. For this purpose, we
+require to compute the limits of demands and generation at each bus in
+the system. Thereafter, the demands/generations are randomly sampled to
+generate test scenarios.
+
+``` r
+sample.dg <- function(limits)
+{
+  nd <- length(limits$dmax)
+  dmax <- limits$dmax; dmin <- limits$dmin
+  gmax <- limits$dmax; gmin <- limits$dmin
+  
+  di = c()
+  for(i in 1:nd)
+  {
+    di <- append(di,runif(1,dmin[i],dmax[i]))
+  }
+  if(sum(di)>sum(gmin))
+  {
+    gi <- gmin+((gmax-gmin)/sum(gmax-gmin))*(sum(di)-sum(gmin))
+    return(list("success"=T,"di"=di,"gi"=gi))
+  }
+  else 
+  {
+    return(list("success"=F,"di"=NA,"gi"=NA))
+  }
+}
+
+eval.scenario <- function(nodes,bus,gen,branch,base=100.0,
+                          max.iter=100,verbose=FALSE)
+{
+  # Get indices of buses and generators in the component
+  busind <- match(nodes,bus$bus_id)
+  C <- as.matrix(gen.bus.con(bus,gen))[busind,]
+  genind <- which(colSums(C)==1)
+  
+  # Get the limits
+  limits <- list("dmax"=bus$pd[busind]/base,
+                 "dmin"=rep(0,length(busind)),
+                 "gmax"=gen$pmax[genind]/base,
+                 "gmin"=gen$pmin[genind]/base)
+  
+  # Get S matrix slice for the component
+  S.comp <- S[,busind]
+  
+  # Perform the iterations
+  iter <- 0
+  while(iter<max.iter)
+  {
+    sample <- sample.dg(limits)
+    if(sample$success==T)
+    {
+      if(verbose) cat("Sampling is successful. Iteration count:",iter)
+      di <- sample$di
+      gi <- sample$gi
+      iter <- iter+1
+      
+      # Compute power injection and flows
+      p.comp <- (C%*%gi)-di
+      f.comp <- S.comp%*%p.comp
+      
+      ###############################################
+      # Insert code to check whether flows within   #
+      # limits for only those edges in the component#
+      ###############################################
+    }
+    else
+    {
+      if(verbose) cat("Sampling is unsuccessful")
+    }
+  }
+}
 ```
