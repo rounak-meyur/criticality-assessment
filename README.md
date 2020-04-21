@@ -52,18 +52,8 @@ get.data <- function(bus,gen,branch,base=100.0)
   #                                                #
   ##################################################
   # Construct the gmin and gmax vectors
-  busnum <- bus$bus_id
-  genbus <- gen$bus_id
-  nb <- nrow(bus)
-  ng <- nrow(gen)
-  gmax <- rep(0,nb)
-  gmin <- rep(0,nb)
-  for(i in 1:ng)
-  {
-    busind <- match(genbus[i],busnum)
-    gmin[busind] = gmin[busind] + gen$pmin[i]/base
-    gmax[busind] = gmax[busind] + gen$pmax[i]/base
-  }
+  gmax <- gen$pmax/base
+  gmin <- gen$pmin/base
   
   # Construct the dmin and dmax vectors
   dmin <- rep(0,nb)
@@ -77,8 +67,33 @@ get.data <- function(bus,gen,branch,base=100.0)
               "dmin"=dmin,"flim"=flim))
 }
 
-# Get the limits
-data <- get.data(busdat,gendat,branchdat)
+gen.bus.con <- function(bus,gen)
+{
+  ##################################################
+  # Creates a sparse matrix of dimension nb-by-ng  #
+  # which maps each generator index to index of the#
+  # bus where it is connected                      #
+  #                                                #
+  # Inputs:                                        #
+  #   bus: csv table of bus data                   #
+  #   gen: csv table of generator data             #
+  #                                                #
+  # Returns:                                       #
+  #   C: a sparse matrix with connection info      #
+  #      given by zeros and ones                   #
+  #                                                #
+  ##################################################
+  ng <- nrow(gen)
+  nb <- nrow(bus)
+  
+  rowind <- match(gen$bus_id,bus$bus_id)
+  colind <- 1:ng
+  x <- rep(1,ng)
+  
+  C <- sparseMatrix(i=rowind,j=colind,
+                    x=x,dims=c(nb,ng))
+  return(C)
+}
 ```
 
 ## Handling islands in power system
@@ -102,7 +117,21 @@ system, the following cases might occur:
 <!-- end list -->
 
 ``` r
-handle.islands = function(bus,branch,verbose=FALSE)
+identify.slack <- function(bus,gen,nlist)
+{
+  # Get the bus-to-generator connection matrix
+  C <- gen.bus.con(bus,gen)
+  
+  # Get the indices of buses in nodelist
+  busind <- match(nlist,bus$bus_id)
+  bus.pmax <- as.matrix(C%*%gen$pmax)[busind]
+  
+  # Returns the node index with maximum pmax
+  return(which.max(bus.pmax))
+}
+
+
+handle.islands = function(bus,branch,gen,verbose=FALSE)
 {
   ##################################################
   # Handles the islands in the network. Identifies #
@@ -126,22 +155,26 @@ handle.islands = function(bus,branch,verbose=FALSE)
   gs <- decompose(g, min.vertices = 1)
   for(t in 1:length(gs))
   {
-    if(verbose) cat("Component",t,"\n")
+    if(verbose) cat("Component",t,":\n")
     nodes <- as.numeric(as_ids(V(gs[[t]])))
     busind <- match(nodes,bus$bus_id)
     btypes <- bus$type[busind]
     
     if(!(3%in%btypes))
     {
-      # No slack bus in component
-      if(2%in%btypes)
+      if(length(nodes)==1)
       {
-        # At least one PV bus in component
-        slack <- which(btypes==2)[1]
+        if(verbose) cat("Isolated node\n")
+        slack <- 1
+      }
+      else if(2%in%btypes)
+      {
+        if(verbose) cat("At least one PV bus\n")
+        slack <- identify.slack(bus,gen,nodes)
       }
       else
       {
-        # No PV bus in component
+        if(verbose) cat("No PV bus\n")
         slack <- which(btypes==1)
       }
       # Change bus type to slack
@@ -149,6 +182,10 @@ handle.islands = function(bus,branch,verbose=FALSE)
       
       if(verbose) cat("Following buses are converted to slack:",
           nodes[slack],"\n")
+    }
+    else
+    {
+      if(verbose) cat("Slack bus already present\n")
     }
     if(verbose) cat("Slack bus(es)",
         nodes[which(bus$type[busind]==3)],"\n")
@@ -164,30 +201,37 @@ already present, we leave it as it is. If not, we search for a generator
 bus and select the first among them as the slack bus for the island. If
 there is no generator bus, we convert each of the buses to a slack bus.
 
-    ## [1] "############## Example 1 ##############"
+    ## [1] "#### Example 1: Branch 27 outage ####"
 
-    ## Component 1 
+    ## Component 1 :
+    ## Slack bus already present
     ## Slack bus(es) 31 
-    ## Component 2 
+    ## Component 2 :
+    ## At least one PV bus
     ## Following buses are converted to slack: 33 
     ## Slack bus(es) 33
 
-    ## [1] "############## Example 2 ##############"
+    ## [1] "#### Example 2: Branch 20 outage ####"
 
-    ## Component 1 
+    ## Component 1 :
+    ## Slack bus already present
     ## Slack bus(es) 31 
-    ## Component 2 
+    ## Component 2 :
+    ## Isolated node
     ## Following buses are converted to slack: 32 
     ## Slack bus(es) 32
 
-    ## [1] "############## Example 3 ##############"
+    ## [1] "#### Example 3: Branch 20,27 outage ####"
 
-    ## Component 1 
+    ## Component 1 :
+    ## Slack bus already present
     ## Slack bus(es) 31 
-    ## Component 2 
+    ## Component 2 :
+    ## At least one PV bus
     ## Following buses are converted to slack: 33 
     ## Slack bus(es) 33 
-    ## Component 3 
+    ## Component 3 :
+    ## Isolated node
     ## Following buses are converted to slack: 32 
     ## Slack bus(es) 32
 
@@ -198,7 +242,7 @@ power injections at each node in the network to flows along edges of the
 network.
 
 ``` r
-make.PTDF = function(bus,branch)
+make.PTDF = function(bus,branch,gen)
 {
   ##################################################
   # Computes the PTDF matrix for a given network.  #
@@ -213,7 +257,7 @@ make.PTDF = function(bus,branch)
   busnum <- bus$bus_id
   
   # Handle islands without any type 3 bus
-  bus <- handle.islands(bus,branch)
+  bus <- handle.islands(bus,branch,gen)
   
   # The columns and rows to be chosen
   noslack <- (1:nb)[bus$type!=3]
@@ -242,5 +286,5 @@ make.PTDF = function(bus,branch)
 }
 
 # Compute PTDF matrix
-S <- make.PTDF(busdat,branchdat)
+S <- make.PTDF(busdat,branchdat,gendat)
 ```
