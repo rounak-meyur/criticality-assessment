@@ -26,7 +26,7 @@ get.data = function(bus, gen, branch) {
 }
 
 gen.bus.con = function(bus, gen) {
-  rowind = match(gen$bus_id,bus$bus_id)
+  rowind = match(gen$bus_id, bus$bus_id)
   colind = 1:nrow(gen)
   x = rep(1,nrow(gen))
   C = sparseMatrix(i = rowind, j = colind, x = x, dims = c(nrow(bus), nrow(gen)))
@@ -92,7 +92,15 @@ handle.islands = function(bus, branch, gen, verbose = FALSE) {
         cat("\nInfeasible island. Zeroing demands and generations\n")
       }
       bus$pd[bus_ind] = rep(0, length(nodes))
-      gen_ind = which(colSums(as.matrix(C)[bus_ind,]) == 1)
+      if (length(bus_ind) == 1) {
+        if (bus_ind %in% gen$bus_id) {
+          gen_ind = bus_ind
+        } else {
+          gen_ind = c()
+        }
+      } else {
+        gen_ind = which(colSums(as.matrix(C)[bus_ind,]) == 1)
+      }
       gen$pmin[gen_ind] = rep(0, length(gen_ind))
       gen$pmax[gen_ind] = rep(0, length(gen_ind))
     }
@@ -134,7 +142,7 @@ iterations = 1000
 criticality = zeros(1, nrow(branchdat) + 1)
 data = get.data(busdat, gendat, branchdat)
 
-for (line_removal in 0:1) { #nrow(branchdat)
+for (line_removal in 0:50) { #nrow(branchdat)
   svMisc::progress(line_removal, nrow(branchdat))
   
   branchdat = read.csv("~/branchdat.csv")
@@ -149,49 +157,67 @@ for (line_removal in 0:1) { #nrow(branchdat)
   
   gs = S_data$graphs
   
+  total_nodes = 0
+  
   for (graph in gs) {
+    crit = 0
     nodes = as.numeric(as_ids(V(graph)))
-    bus_ind = which(S_data$bus$bus_id %in% nodes)
-    C = as.matrix(gen.bus.con(S_data$bus, S_data$gen))[bus_ind,]
-    gen_ind = which(colSums(C) == 1)
-    
-    d_max = S_data$dmax[bus_ind]
-    d_min = S_data$dmin[bus_ind]
-    g_max = S_data$gmax[gen_ind]
-    g_min = S_data$gmin[gen_ind]
-    
-    mat = as.matrix(as_edgelist(graph))
-    mat = cbind(mat, 0)
-    for (i in 1:nrow(mat)) {
-      index = which(branchdat[which(branchdat$fbus == mat[i, 1]), 2] == mat[i, 2])[1]
-      if (is.na(index)) {
-        index = which(branchdat[which(branchdat$fbus == mat[i, 2]), 2] == mat[i, 1])[1]
-        mat[i, 3] = which(branchdat$fbus == mat[i, 2])[index]
-      } else {
-        mat[i, 3] = which(branchdat$fbus == mat[i, 1])[index]
-      }
-    }
-    for (i in 1:(nrow(mat)-1)) {
-      if (as.numeric(mat[i, 3]) == as.numeric(mat[i+1,3])) {
-        mat[i+1,3] = as.numeric(mat[i, 3]) + 1
-      }
-    }
-    
-    edge_ind = as.numeric(as.vector(mat[,3]))
-    S.comp = S_data$S[edge_ind, bus_ind]
-    flim = S_data$flim[edge_ind]
-    
-    for (a in 1:iterations) {
-      svMisc::progress(a, iterations)
+    total_nodes = total_nodes + length(nodes)
+    if (length(nodes) > 1) {
+      bus_ind = which(S_data$bus$bus_id %in% nodes)
+      C = as.matrix(gen.bus.con(S_data$bus, S_data$gen))[bus_ind,]
+      gen_ind = which(colSums(C) == 1)
+      C = C[,gen_ind]
       
-      d_i = c()
-      for (l in 1:length(d_max)) {
-        d_i = append(d_i, runif(1, d_min[l], d_max[l]))
+      d_max = S_data$dmax[bus_ind]
+      d_min = S_data$dmin[bus_ind]
+      g_max = S_data$gmax[gen_ind]
+      g_min = S_data$gmin[gen_ind]
+      
+      mat = as.matrix(as_edgelist(graph))
+      mat = cbind(mat, 0)
+      for (i in 1:nrow(mat)) {
+        index = which(branchdat[which(branchdat$fbus == mat[i, 1]), 2] == mat[i, 2])[1]
+        if (is.na(index)) {
+          index = which(branchdat[which(branchdat$fbus == mat[i, 2]), 2] == mat[i, 1])[1]
+          mat[i, 3] = which(branchdat$fbus == mat[i, 2])[index]
+        } else {
+          mat[i, 3] = which(branchdat$fbus == mat[i, 1])[index]
+        }
+      }
+      for (i in 1:(nrow(mat)-1)) {
+        if (as.numeric(mat[i, 3]) == as.numeric(mat[i+1,3])) {
+          mat[i+1,3] = as.numeric(mat[i, 3]) + 1
+        }
       }
       
-      if (sum(d_i) > sum(g_min)) {
-        g_i = ((g_max - g_min) / sum(g_max - g_min) * (sum(d_i) - sum(g_min))) + g_min
-        p = S %*% g_i - d_i
+      edge_ind = as.numeric(as.vector(mat[,3]))
+      S.comp = S_data$S[edge_ind, bus_ind]
+      flim = S_data$flim[edge_ind]
+      
+      for (iter in 1:iterations) {
+        svMisc::progress(iter, iterations)
+        
+        g_i = c()
+        for (l in 1:length(g_max)) {
+          g_i = append(g_i, runif(1, g_min[l], g_max[l]))
+        }
+        Sg = sum(g_i)
+        
+        while (Sg > sum(d_max)) {
+          g_i = c()
+          for (l in 1:length(g_max)) {
+            g_i = append(g_i, runif(1, g_min[l], g_max[l]))
+          }
+          Sg = sum(g_i)
+        }
+        
+        d_i = c()
+        for (l in 1:length(d_max)) {
+          d_i = append(d_i, (d_max[l] * Sg / sum(d_max)))
+        }
+        
+        p = (C %*% g_i) - d_i
         f = S.comp %*% p
         
         fail = 0
@@ -207,17 +233,16 @@ for (line_removal in 0:1) { #nrow(branchdat)
         }
         
         if (fail == 0) {
-          criticality[line_removal + 1] = criticality[line_removal + 1] + 1
+          crit = crit + 1
         }
-      } else {
-        a = a - 1
       }
+      criticality[line_removal + 1] = criticality[line_removal + 1] + (length(nodes) * crit / iterations)
     }
   }
+  criticality[line_removal + 1] = criticality[line_removal + 1] / total_nodes
 }
 print(proc.time() - ptm)
-rm(a, l, i, index)
-criticality = criticality / iterations
+rm(iter, l, i, index)
 # criticality
 # sort(criticality)
 # rank(criticality)
