@@ -40,19 +40,18 @@ identify.slack.node = function(bus, gen, nlist) {
   return(which.max(bus.pmax))
 }
 
-handle.islands = function(bus, branch, gen, verbose = FALSE) {
+handle.islands = function(bus, branch, gen, dat, verbose = FALSE) {
   g = graph.data.frame(branch[, 1:2], directed = FALSE)
   
-  line_r = which(branch$status == 0)
+  line_r = which(branch$status == 0) #identify removed line
   g = delete_edges(g, line_r)
   
-  gs = decompose(g, min.vertices = 1)
-  for(t in 1:length(gs))
-  {
+  gs = decompose(g, min.vertices = 1) #generate connected components
+  for(t in 1:length(gs)) {
     nodes = as.numeric(as_ids(V(gs[[t]])))
-    if(verbose) {
-      cat("Component",t,":",nodes,"\n")
-    }
+    # if(verbose) {
+    #   cat("Component", t, ":", nodes, "\n")
+    # }
     bus_ind = match(nodes, bus$bus_id)
     btypes = bus$type[bus_ind]
     
@@ -62,7 +61,7 @@ handle.islands = function(bus, branch, gen, verbose = FALSE) {
           cat("Isolated node\n")
         }
         bus$type[bus_ind[1]] = 3
-        bus$pd[bus_ind] = 0
+        dat$dmax[bus_ind] = 0 #bus$pd[bus_ind] = 0
       } else if(2 %in% btypes) {
         if(verbose) {
           cat("At least one PV bus\n")
@@ -74,24 +73,23 @@ handle.islands = function(bus, branch, gen, verbose = FALSE) {
           cat("No PV bus\n")
         }
         bus$type[bus_ind[1]] = 3
-        bus$pd[bus_ind] = rep(0,length(nodes))
+        dat$dmax[bus_ind] = 0 #bus$pd[bus_ind] = rep(0,length(nodes))
       }
-    } else {
-      if(verbose) {
-        cat("Slack bus already present\n")
-      }
-    }
-    if(verbose) {
-      cat("Slack bus:", nodes[which(bus$type[bus_ind] == 3)], "\n")
-    }
+    } 
+    # else if(verbose) {
+    #     cat("Slack bus already present\n")
+    # }
+    # if(verbose) {
+    #   cat("Slack bus:", nodes[which(bus$type[bus_ind] == 3)], "\n")
+    # }
 
-    C = gen.bus.con(bus,gen)
-    if(sum(bus$pd[bus_ind]) < sum(as.matrix(C%*%gen$pmin)[bus_ind])) {
+    C = gen.bus.con(bus, gen)
+    if(sum(dat$dmax[bus_ind]) < sum(as.matrix(C %*% dat$gmin)[bus_ind])) {
       if(verbose) {
-        cat("Maximum demand:", sum(bus$pd[bus_ind])," Minimum generation:", sum(as.matrix(C%*%gen$pmin)[bus_ind]))
+        cat("Maximum demand:", sum(dat$dmax[bus_ind])," Minimum generation:", sum(as.matrix(C%*%gen$pmin)[bus_ind]))
         cat("\nInfeasible island. Zeroing demands and generations\n")
       }
-      bus$pd[bus_ind] = rep(0, length(nodes))
+      dat$dmax[bus_ind] = 0 #dat$dmax[bus_ind] = rep(0, length(nodes))
       if (length(bus_ind) == 1) {
         if (bus_ind %in% gen$bus_id) {
           gen_ind = bus_ind
@@ -101,16 +99,17 @@ handle.islands = function(bus, branch, gen, verbose = FALSE) {
       } else {
         gen_ind = which(colSums(as.matrix(C)[bus_ind,]) == 1)
       }
-      gen$pmin[gen_ind] = rep(0, length(gen_ind))
-      gen$pmax[gen_ind] = rep(0, length(gen_ind))
+      dat$gmax[gen_ind] = 0 #gen$pmax[gen_ind] = rep(0, length(gen_ind))
+      dat$gmin[gen_ind] = 0 #gen$pmin[gen_ind] = rep(0, length(gen_ind))
     }
   }
-  return(list("bus" = bus, "gen" = gen, "graphs" = gs))
+  return(list("bus" = bus, "gen" = gen, "graphs" = gs, "gmin" = dat$gmin, "gmax" = dat$gmax, "dmax" = dat$dmax, "dmin" = dat$dmin, "flim" = dat$flim))
 }
 
 calculate.s = function(bus, branch, gen, dat) {
-  all = handle.islands(bus,branch,gen)
-  bus = all$bus
+  all_data = handle.islands(bus, branch, gen, dat)
+  bus = all_data$bus
+  gen = all_data$gen
 
   noslack = (1:nrow(bus))[bus$type != 3]
   
@@ -127,7 +126,7 @@ calculate.s = function(bus, branch, gen, dat) {
   S = matrix(0, nrow(branch), nrow(bus))
   S[,noslack] = as.matrix(Bf[, noslack]) %*% inv(as.matrix(Br[noslack, noslack]))
   
-  return(list("gmin" = dat$gmin, "gmax" = dat$gmax, "dmax" = dat$dmax, "dmin" = dat$dmin, "flim" = dat$flim, "S" = S, "bus" = all$bus, "gen" = all$gen, "graphs" = all$graphs))
+  return(list("gmin" = all_data$gmin, "gmax" = all_data$gmax, "dmax" = all_data$dmax, "dmin" = all_data$dmin, "flim" = all_data$flim, "S" = S, "bus" = bus, "gen" = gen, "graphs" = all_data$graphs))
 }
 
 #---------------------------------------------------------------------------------------------------------------------------------------------------
@@ -139,20 +138,22 @@ busdat = read.csv("~/busdat.csv")
 
 iterations = 1000
 
-criticality = zeros(1, nrow(branchdat) + 1)
+criticality = rep(0.0, nrow(branchdat) + 1)
 data = get.data(busdat, gendat, branchdat)
 
-for (line_removal in 0:50) { #nrow(branchdat)
+for (line_removal in 972:1500) { #nrow(branchdat)
   svMisc::progress(line_removal, nrow(branchdat))
   
   branchdat = read.csv("~/branchdat.csv")
   gendat = read.csv("~/gendat.csv")
   busdat = read.csv("~/busdat.csv")
   
+  #indicate which line has been removed in the status of the branchdat database
   if (line_removal != 0) {
     branchdat[line_removal, 11] = 0
   }
   
+  #calculate S matrix
   S_data = calculate.s(busdat, branchdat, gendat, data)
   
   gs = S_data$graphs
@@ -167,76 +168,80 @@ for (line_removal in 0:50) { #nrow(branchdat)
       bus_ind = which(S_data$bus$bus_id %in% nodes)
       C = as.matrix(gen.bus.con(S_data$bus, S_data$gen))[bus_ind,]
       gen_ind = which(colSums(C) == 1)
-      C = C[,gen_ind]
-      
-      d_max = S_data$dmax[bus_ind]
-      d_min = S_data$dmin[bus_ind]
-      g_max = S_data$gmax[gen_ind]
-      g_min = S_data$gmin[gen_ind]
-      
-      mat = as.matrix(as_edgelist(graph))
-      mat = cbind(mat, 0)
-      for (i in 1:nrow(mat)) {
-        index = which(branchdat[which(branchdat$fbus == mat[i, 1]), 2] == mat[i, 2])[1]
-        if (is.na(index)) {
-          index = which(branchdat[which(branchdat$fbus == mat[i, 2]), 2] == mat[i, 1])[1]
-          mat[i, 3] = which(branchdat$fbus == mat[i, 2])[index]
-        } else {
-          mat[i, 3] = which(branchdat$fbus == mat[i, 1])[index]
-        }
-      }
-      for (i in 1:(nrow(mat)-1)) {
-        if (as.numeric(mat[i, 3]) == as.numeric(mat[i+1,3])) {
-          mat[i+1,3] = as.numeric(mat[i, 3]) + 1
-        }
-      }
-      
-      edge_ind = as.numeric(as.vector(mat[,3]))
-      S.comp = S_data$S[edge_ind, bus_ind]
-      flim = S_data$flim[edge_ind]
-      
-      for (iter in 1:iterations) {
-        svMisc::progress(iter, iterations)
+      if (!isempty(gen_ind)) {
+        C = C[,gen_ind]
         
-        g_i = c()
-        for (l in 1:length(g_max)) {
-          g_i = append(g_i, runif(1, g_min[l], g_max[l]))
-        }
-        Sg = sum(g_i)
+        d_max = S_data$dmax[bus_ind]
+        d_min = S_data$dmin[bus_ind]
+        g_max = S_data$gmax[gen_ind]
+        g_min = S_data$gmin[gen_ind]
         
-        while (Sg > sum(d_max)) {
+        mat = as.matrix(as_edgelist(graph))
+        mat = cbind(mat, 0)
+        for (i in 1:nrow(mat)) {
+          index = which(branchdat[which(branchdat$fbus == mat[i, 1]), 2] == mat[i, 2])[1]
+          if (is.na(index)) {
+            index = which(branchdat[which(branchdat$fbus == mat[i, 2]), 2] == mat[i, 1])[1]
+            mat[i, 3] = which(branchdat$fbus == mat[i, 2])[index]
+          } else {
+            mat[i, 3] = which(branchdat$fbus == mat[i, 1])[index]
+          }
+        }
+        for (i in 1:(nrow(mat) - 1)) {
+          if (nrow(mat) > 1) {
+            if (as.numeric(mat[i, 3]) == as.numeric(mat[i + 1,3])) {
+              mat[i + 1,3] = as.numeric(mat[i, 3]) + 1
+            }
+          }
+        }
+        
+        edge_ind = as.numeric(as.vector(mat[,3]))
+        S.comp = S_data$S[edge_ind, bus_ind]
+        flim = S_data$flim[edge_ind]
+        
+        for (iter in 1:iterations) {
+          svMisc::progress(iter, iterations)
+          
           g_i = c()
           for (l in 1:length(g_max)) {
             g_i = append(g_i, runif(1, g_min[l], g_max[l]))
           }
           Sg = sum(g_i)
-        }
-        
-        d_i = c()
-        for (l in 1:length(d_max)) {
-          d_i = append(d_i, (d_max[l] * Sg / sum(d_max)))
-        }
-        
-        p = (C %*% g_i) - d_i
-        f = S.comp %*% p
-        
-        fail = 0
-        success = 0
-        for (l in 1:length(edge_ind)) {
-          range = c(0, flim[l] * 1.5)
-          if (inside.range(abs(f[l]), range)) {
-            success = success + 1
+          
+          while (Sg > sum(d_max)) {
+            g_i = c()
+            for (l in 1:length(g_max)) {
+              g_i = append(g_i, runif(1, g_min[l], g_max[l]))
+            }
+            Sg = sum(g_i)
           }
-          else {
-            fail = fail + 1
+          
+          d_i = c()
+          for (l in 1:length(d_max)) {
+            d_i = append(d_i, (d_max[l] * Sg / sum(d_max)))
+          }
+          
+          p = (C %*% g_i) - d_i
+          f = S.comp %*% p
+          
+          fail = 0
+          success = 0
+          for (l in 1:length(edge_ind)) {
+            range = c(0, flim[l] * 1.5)
+            if (inside.range(abs(f[l]), range)) {
+              success = success + 1
+            }
+            else {
+              fail = fail + 1
+            }
+          }
+          
+          if (fail == 0) {
+            crit = crit + 1
           }
         }
-        
-        if (fail == 0) {
-          crit = crit + 1
-        }
+        criticality[line_removal + 1] = criticality[line_removal + 1] + (length(nodes) * crit / iterations)
       }
-      criticality[line_removal + 1] = criticality[line_removal + 1] + (length(nodes) * crit / iterations)
     }
   }
   criticality[line_removal + 1] = criticality[line_removal + 1] / total_nodes
