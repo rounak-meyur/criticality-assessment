@@ -14,6 +14,7 @@ library(Matrix)
 library(spatstat.utils)
 library(base)
 library(matrixStats)
+library(graphics)
 
 #---------------------------------------------------------------------------------------------------------------------------------------------------
 get.data = function(bus, gen, branch) {
@@ -40,56 +41,32 @@ identify.slack.node = function(bus, gen, nlist) {
   return(which.max(bus.pmax))
 }
 
-handle.islands = function(bus, branch, gen, dat, verbose = FALSE) {
+handle.islands = function(bus, branch, gen, dat) {
   g = graph.data.frame(branch[, 1:2], directed = FALSE)
-  
-  line_r = which(branch$status == 0) #identify removed line
-  g = delete_edges(g, line_r)
-  
+  g = delete_edges(g, which(branch$status == 0))
   gs = decompose(g, min.vertices = 1) #generate connected components
+  
   for(t in 1:length(gs)) {
     nodes = as.numeric(as_ids(V(gs[[t]])))
-    # if(verbose) {
-    #   cat("Component", t, ":", nodes, "\n")
-    # }
     bus_ind = match(nodes, bus$bus_id)
-    btypes = bus$type[bus_ind]
+    b_types = bus$type[bus_ind]
     
-    if(!(3 %in% btypes)) {
-      if(length(nodes) == 1) {
-        if(verbose) {
-          cat("Isolated node\n")
-        }
+    if(!(3 %in% b_types)) {
+      if(length(nodes) == 1) { #isolated node
         bus$type[bus_ind[1]] = 3
-        dat$dmax[bus_ind] = 0 #bus$pd[bus_ind] = 0
-      } else if(2 %in% btypes) {
-        if(verbose) {
-          cat("At least one PV bus\n")
-        }
+        dat$dmax[bus_ind] = 0
+      } else if(2 %in% b_types) { #one or more generators
         slack = identify.slack.node(bus, gen, nodes)
         bus$type[bus_ind[slack$max]] = 3
-      } else {
-        if(verbose) {
-          cat("No PV bus\n")
-        }
+      } else { #no generators
         bus$type[bus_ind[1]] = 3
-        dat$dmax[bus_ind] = 0 #bus$pd[bus_ind] = rep(0,length(nodes))
+        dat$dmax[bus_ind] = 0
       }
-    } 
-    # else if(verbose) {
-    #     cat("Slack bus already present\n")
-    # }
-    # if(verbose) {
-    #   cat("Slack bus:", nodes[which(bus$type[bus_ind] == 3)], "\n")
-    # }
+    }
 
     C = gen.bus.con(bus, gen)
     if(sum(dat$dmax[bus_ind]) < sum(as.matrix(C %*% dat$gmin)[bus_ind])) {
-      if(verbose) {
-        cat("Maximum demand:", sum(dat$dmax[bus_ind])," Minimum generation:", sum(as.matrix(C%*%gen$pmin)[bus_ind]))
-        cat("\nInfeasible island. Zeroing demands and generations\n")
-      }
-      dat$dmax[bus_ind] = 0 #dat$dmax[bus_ind] = rep(0, length(nodes))
+      dat$dmax[bus_ind] = 0
       if (length(bus_ind) == 1) {
         if (bus_ind %in% gen$bus_id) {
           gen_ind = bus_ind
@@ -99,8 +76,8 @@ handle.islands = function(bus, branch, gen, dat, verbose = FALSE) {
       } else {
         gen_ind = which(colSums(as.matrix(C)[bus_ind,]) == 1)
       }
-      dat$gmax[gen_ind] = 0 #gen$pmax[gen_ind] = rep(0, length(gen_ind))
-      dat$gmin[gen_ind] = 0 #gen$pmin[gen_ind] = rep(0, length(gen_ind))
+      dat$gmax[gen_ind] = 0
+      dat$gmin[gen_ind] = 0
     }
   }
   return(list("bus" = bus, "gen" = gen, "graphs" = gs, "gmin" = dat$gmin, "gmax" = dat$gmax, "dmax" = dat$dmax, "dmin" = dat$dmin, "flim" = dat$flim))
@@ -141,7 +118,7 @@ iterations = 1000
 criticality = rep(0.0, nrow(branchdat) + 1)
 data = get.data(busdat, gendat, branchdat)
 
-for (line_removal in 972:1500) { #nrow(branchdat)
+for (line_removal in 698:nrow(branchdat)) {
   svMisc::progress(line_removal, nrow(branchdat))
   
   branchdat = read.csv("~/branchdat.csv")
@@ -248,6 +225,5 @@ for (line_removal in 972:1500) { #nrow(branchdat)
 }
 print(proc.time() - ptm)
 rm(iter, l, i, index)
-# criticality
-# sort(criticality)
-# rank(criticality)
+h = hist(criticality, breaks = 50, main = "Transmission Line Criticality Frequencies", xlab = "Criticality", ylab = "Count", col = "darkmagenta", freq = TRUE)
+text(h$mids, h$counts, labels = h$counts, adj = c(0.5, -0.5))
