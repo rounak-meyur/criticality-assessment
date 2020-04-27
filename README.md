@@ -119,7 +119,7 @@ handle.islands = function(bus,branch,gen,verbose=FALSE)
       if(length(nodes)==1)
       {
         if(verbose) cat("Isolated node\n")
-        bus$type[busind[1]] <- 3
+        bus$type[busind[1]] <- 4
         bus$pd[busind] <- 0
       }
       else if(2%in%btypes)
@@ -131,7 +131,7 @@ handle.islands = function(bus,branch,gen,verbose=FALSE)
       else
       {
         if(verbose) cat("No PV bus\n")
-        bus$type[busind[1]] <- 3
+        bus$type[busind[1]] <- 4
         bus$pd[busind] <- rep(0,length(nodes))
       }
     }
@@ -140,7 +140,9 @@ handle.islands = function(bus,branch,gen,verbose=FALSE)
       if(verbose) cat("Slack bus already present\n")
     }
     if(verbose) cat("Slack bus:",
-        nodes[which(bus$type[busind]==3)],"\n")
+        nodes[which(bus$type[busind]==3)],
+        "Disconnected bus:",
+        nodes[which(bus$type[busind]==4)],"\n")
     
     # Check for the other infeasible case: 
     # sum(dmax)<sum(gmin)
@@ -153,6 +155,7 @@ handle.islands = function(bus,branch,gen,verbose=FALSE)
         cat("Maximum demand:",max.demand," Minimum generation:",min.generation)
         cat("\nInfeasible island. Zeroing demands and generations\n")
       }
+      bus$type[busind] <- rep(4,length(nodes))
       bus$pd[busind] <- rep(0,length(nodes))
       genind <- which(colSums(as.matrix(C)[busind,])==1)
       gen$pmin[genind] <- rep(0,length(genind))
@@ -174,40 +177,40 @@ there is no generator bus, we convert each of the buses to a slack bus.
 
     ## Component 1 : 1 2 3 4 5 6 7 8 9 10 12 13 14 15 16 17 21 22 23 25 26 28 29 39 30 18 11 31 32 24 27 35 36 37 38 
     ## Slack bus already present
-    ## Slack bus: 31 
+    ## Slack bus: 31 Disconnected bus:  
     ## Component 2 : 19 20 33 34 
     ## At least one PV bus
-    ## Slack bus: 33
+    ## Slack bus: 33 Disconnected bus:
 
     ## [1] "#### Example 2: Branch 20 outage ####"
 
     ## Component 1 : 1 2 3 4 5 6 7 8 9 10 12 13 14 15 16 17 19 20 21 22 23 25 26 28 29 39 30 18 11 31 24 27 33 34 35 36 37 38 
     ## Slack bus already present
-    ## Slack bus: 31 
+    ## Slack bus: 31 Disconnected bus:  
     ## Component 2 : 32 
     ## Isolated node
-    ## Slack bus: 32
+    ## Slack bus:  Disconnected bus: 32
 
     ## [1] "#### Example 3: Branch 20,27 outage ####"
 
     ## Component 1 : 1 2 3 4 5 6 7 8 9 10 12 13 14 15 16 17 21 22 23 25 26 28 29 39 30 18 11 31 24 27 35 36 37 38 
     ## Slack bus already present
-    ## Slack bus: 31 
+    ## Slack bus: 31 Disconnected bus:  
     ## Component 2 : 19 20 33 34 
     ## At least one PV bus
-    ## Slack bus: 33 
+    ## Slack bus: 33 Disconnected bus:  
     ## Component 3 : 32 
     ## Isolated node
-    ## Slack bus: 32
+    ## Slack bus:  Disconnected bus: 32
 
     ## [1] "#### Example 4: Branch 44,45 outage, minimum generation of Gen 9: 300 MW ####"
 
     ## Component 1 : 1 2 3 4 5 6 7 8 9 10 12 13 14 15 16 17 19 20 21 22 23 25 26 28 39 30 18 11 31 32 24 27 33 34 35 36 37 
     ## Slack bus already present
-    ## Slack bus: 31 
+    ## Slack bus: 31 Disconnected bus:  
     ## Component 2 : 29 38 
     ## At least one PV bus
-    ## Slack bus: 38 
+    ## Slack bus: 38 Disconnected bus:  
     ## Maximum demand: 283.5  Minimum generation: 300
     ## Infeasible island. Zeroing demands and generations
 
@@ -260,9 +263,6 @@ make.PTDF = function(bus,branch,gen)
   
   return(S)
 }
-
-# Compute PTDF matrix
-S <- make.PTDF(busdat,branchdat,gendat)
 ```
 
 ## Sample space and scenario generation
@@ -279,18 +279,18 @@ generate test scenarios.
 ``` r
 sample.dg <- function(limits)
 {
-  nd <- length(limits$dmax)
+  ng <- length(limits$gmax)
   dmax <- limits$dmax; dmin <- limits$dmin
   gmax <- limits$dmax; gmin <- limits$dmin
   
-  di = c()
-  for(i in 1:nd)
+  gi = c()
+  for(i in 1:ng)
   {
-    di <- append(di,runif(1,dmin[i],dmax[i]))
+    gi <- append(gi,runif(1,gmin[i],gmax[i]))
   }
-  if(sum(di)>sum(gmin))
+  if(sum(gi)<=sum(dmax))
   {
-    gi <- gmin+((gmax-gmin)/sum(gmax-gmin))*(sum(di)-sum(gmin))
+    di <- dmax/sum(dmax)*sum(gi)
     return(list("success"=T,"di"=di,"gi"=gi))
   }
   else 
@@ -342,7 +342,8 @@ eval.scenario <- function(nodes,edgeind,bus,gen,branch,
     sample <- sample.dg(limits)
     if(sample$success==T)
     {
-      if(verbose) cat("Sampling is successful. Iteration count:",iter)
+      if(verbose) cat("Sampling is successful. Iteration count:",
+                      iter+1,"\n")
       di <- sample$di
       gi <- sample$gi
       iter <- iter+1
@@ -356,7 +357,7 @@ eval.scenario <- function(nodes,edgeind,bus,gen,branch,
       success <- 0
       for(l in 1:length(edgeind))
       {
-        range <- c(0,flim[l]*1.5)
+        range <- c(0,flim[l]*1)
         if(inside.range(abs(f.comp[l]),range)) success <- success + 1
         else fail <- fail + 1
       }
@@ -368,9 +369,25 @@ eval.scenario <- function(nodes,edgeind,bus,gen,branch,
     }
     else
     {
-      if(verbose) cat("Sampling is unsuccessful")
+      if(verbose) cat("Sampling is unsuccessful\n")
     }
   }
   return(criticality)
 }
 ```
+
+``` r
+# Compute PTDF matrix
+S <- make.PTDF(busdat,branchdat,gendat)
+
+# nodes and edges
+nodelist <- busdat$bus_id
+edgeind <- 1:nrow(branchdat)
+
+crit <- eval.scenario(nodelist,edgeind,
+                      busdat,gendat,branchdat)
+
+cat("Criticality: Successes:",crit,"Failures:",100-crit)
+```
+
+    ## Criticality: Successes: 100 Failures: 0
