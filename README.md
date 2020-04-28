@@ -166,54 +166,6 @@ handle.islands = function(bus,branch,gen,verbose=FALSE)
 }
 ```
 
-We now show examples of handling these islands by creating line trips
-and settinf up new slack buses. We first divide the network into
-disconnected components and search for slack bus. If a slack bus is
-already present, we leave it as it is. If not, we search for a generator
-bus and select the first among them as the slack bus for the island. If
-there is no generator bus, we convert each of the buses to a slack bus.
-
-    ## [1] "#### Example 1: Branch 27 outage ####"
-
-    ## Component 1 : 1 2 3 4 5 6 7 8 9 10 12 13 14 15 16 17 21 22 23 25 26 28 29 39 30 18 11 31 32 24 27 35 36 37 38 
-    ## Slack bus already present
-    ## Slack bus: 31 Disconnected bus:  
-    ## Component 2 : 19 20 33 34 
-    ## At least one PV bus
-    ## Slack bus: 33 Disconnected bus:
-
-    ## [1] "#### Example 2: Branch 20 outage ####"
-
-    ## Component 1 : 1 2 3 4 5 6 7 8 9 10 12 13 14 15 16 17 19 20 21 22 23 25 26 28 29 39 30 18 11 31 24 27 33 34 35 36 37 38 
-    ## Slack bus already present
-    ## Slack bus: 31 Disconnected bus:  
-    ## Component 2 : 32 
-    ## Isolated node
-    ## Slack bus:  Disconnected bus: 32
-
-    ## [1] "#### Example 3: Branch 20,27 outage ####"
-
-    ## Component 1 : 1 2 3 4 5 6 7 8 9 10 12 13 14 15 16 17 21 22 23 25 26 28 29 39 30 18 11 31 24 27 35 36 37 38 
-    ## Slack bus already present
-    ## Slack bus: 31 Disconnected bus:  
-    ## Component 2 : 19 20 33 34 
-    ## At least one PV bus
-    ## Slack bus: 33 Disconnected bus:  
-    ## Component 3 : 32 
-    ## Isolated node
-    ## Slack bus:  Disconnected bus: 32
-
-    ## [1] "#### Example 4: Branch 44,45 outage, minimum generation of Gen 9: 300 MW ####"
-
-    ## Component 1 : 1 2 3 4 5 6 7 8 9 10 12 13 14 15 16 17 19 20 21 22 23 25 26 28 39 30 18 11 31 32 24 27 33 34 35 36 37 
-    ## Slack bus already present
-    ## Slack bus: 31 Disconnected bus:  
-    ## Component 2 : 29 38 
-    ## At least one PV bus
-    ## Slack bus: 38 Disconnected bus:  
-    ## Maximum demand: 283.5  Minimum generation: 300
-    ## Infeasible island. Zeroing demands and generations
-
 ## Power Transfer Distribution Factor (PTDF)
 
 We compute the PTDF matrix for a given network. This matrix relates the
@@ -239,7 +191,7 @@ make.PTDF = function(bus,branch,gen)
   bus <- handle.islands(bus,branch,gen)
   
   # The columns and rows to be chosen
-  noslack <- (1:nb)[bus$type!=3]
+  noslack <- (1:nb)[(bus$type!=3)|(bus$type!=4)]
   
   # Compute the PTDF matrix
   colind <- c(match(branch$fbus,busnum),
@@ -298,16 +250,31 @@ sample.dg <- function(limits)
     return(list("success"=F,"di"=NA,"gi"=NA))
   }
 }
+```
 
-eval.scenario <- function(nodes,edgeind,bus,gen,branch,
+## Criticality evaluation
+
+We evaluate the criticality for each component of the power grid
+separately. For this purpose, first the coponents are identified and
+then random test scenarios are generated for each component. The
+criticality of each component is evaluated as the fraction of the total
+number of random scenarios where it is feasible. This component
+criticality is weighed by the size of the component and the weighted
+average criticality of the entire power grid is computed. Note that for
+isolated nodes and coponents which are infeasible, the criticality os
+considered to be zero.
+
+``` r
+eval.component <- function(S,nodes,edgeind,bus,gen,branch,
                           base=100.0,max.iter=100,
                           verbose=FALSE)
 {
   ##################################################
-  # Evaluates the criticality of a scenario for a  #
-  # component in the power grid network.           #
+  # Evaluates the criticality of a component in the#
+  # power grid network.                            #
   #                                                #
   # Inputs:                                        #
+  #   S: PTDF matrix of the system                 #
   #   nodes: list of nodes in component            #
   #   edgeind: list of branch indices in component #
   #   bus: csv table of bus data                   #
@@ -323,6 +290,7 @@ eval.scenario <- function(nodes,edgeind,bus,gen,branch,
   busind <- match(nodes,bus$bus_id)
   C <- as.matrix(gen.bus.con(bus,gen))[busind,]
   genind <- which(colSums(C)==1)
+  C <- as.matrix(C[,genind])
   
   # Get the limits
   limits <- list("dmax"=bus$pd[busind]/base,
@@ -374,20 +342,186 @@ eval.scenario <- function(nodes,edgeind,bus,gen,branch,
   }
   return(criticality)
 }
+
+
+eval.scenario <- function(bus,branch,gen,verbose=F,
+                          max.iter=100,base=100.0)
+{
+  ##################################################
+  # Evaluates the criticality of a scenario in the #
+  # power grid network.                            #
+  #                                                #
+  # Inputs:                                        #
+  #   bus: csv table of bus data                   #
+  #   gen: csv table of generator data             #
+  #   branch: csv table of branch data             #
+  #   base: base MVA: default to 100.0 MVA         #
+  #   max.iter: number of random iterations        # 
+  #   verbose: print outputs                       #
+  #                                                #
+  ##################################################
+  
+  # Initialize return output
+  net.crit <- 0
+  net.node <- 0
+  
+  # Handle islands
+  dat <- handle.islands(bus,branch,gen,verbose=verbose)
+  bus <- dat$bus
+  gen <- dat$gen
+  # Compute PTDF matrix
+  S <- make.PTDF(bus,branch,gen)
+  
+  # Create a graph from the branch data
+  g <- graph.data.frame(branch[, 1:2],directed=FALSE)
+  # Remove the edge(s) whose status is/are equal to 0
+  line_r <- which(branch$status==0)
+  g <- delete_edges(g, line_r)
+  # Decompose the graph into components and iterate
+  gs <- decompose(g, min.vertices = 1)
+  
+  # Evaluate criticality for each island
+  for(t in 1:length(gs))
+  {
+    nodes <- as.numeric(as_ids(V(gs[[t]])))
+    nodeind <- match(nodes,bus$bus_id)
+    edgeind <- (1:nrow(branch))[branch$status==1]
+    nodetype <- bus$type[nodeind]
+    
+    if((length(nodes)>1)&(3 %in% nodetype))
+    {
+      crit <- eval.component(S,nodes,edgeind,bus,gen,branch,
+                            max.iter=max.iter,base=base)
+    }
+    else crit <- 0
+    
+    cat("Island:",t,"-- Nodes:",length(nodes),
+        " -- Criticality: Successes:",crit,"Failures:",100-crit,"\n")
+    
+    net.crit <- net.crit + crit*length(nodes)
+    net.node <- net.node + length(nodes)
+  }
+  if (verbose) cat("Net criticality:",net.crit/net.node)
+  return(net.crit/net.node)
+}
 ```
+
+## Examples of test cases
+
+We now show examples of handling these islands by creating line trips
+and settinf up new slack buses. We first divide the network into
+disconnected components and search for slack bus. If a slack bus is
+already present, we leave it as it is. If not, we search for a generator
+bus and select the first among them as the slack bus for the island. If
+there is no generator bus, we convert each of the buses to a slack bus.
+
+### Test case 1: base case with no outages
 
 ``` r
-# Compute PTDF matrix
-S <- make.PTDF(busdat,branchdat,gendat)
-
-# nodes and edges
-nodelist <- busdat$bus_id
-edgeind <- 1:nrow(branchdat)
-
-crit <- eval.scenario(nodelist,edgeind,
-                      busdat,gendat,branchdat)
-
-cat("Criticality: Successes:",crit,"Failures:",100-crit)
+# Basecase example
+c <- eval.scenario(busdat,branchdat,gendat,
+                   verbose=T)
 ```
 
-    ## Criticality: Successes: 100 Failures: 0
+    ## Component 1 : 1 2 3 4 5 6 7 8 9 10 12 13 14 15 16 17 19 20 21 22 23 25 26 28 29 39 30 18 11 31 32 24 27 33 34 35 36 37 38 
+    ## Slack bus already present
+    ## Slack bus: 31 Disconnected bus:  
+    ## Island: 1 -- Nodes: 39  -- Criticality: Successes: 100 Failures: 0 
+    ## Net criticality: 100
+
+### Test case 2: outage in branch number 27
+
+``` r
+# Example of the function with branch 27 removed
+alt1.branchdat <- branchdat
+alt1.branchdat$status[27]=0
+
+c <- eval.scenario(busdat,alt1.branchdat,gendat,
+                   verbose=T)
+```
+
+    ## Component 1 : 1 2 3 4 5 6 7 8 9 10 12 13 14 15 16 17 21 22 23 25 26 28 29 39 30 18 11 31 32 24 27 35 36 37 38 
+    ## Slack bus already present
+    ## Slack bus: 31 Disconnected bus:  
+    ## Component 2 : 19 20 33 34 
+    ## At least one PV bus
+    ## Slack bus: 33 Disconnected bus:  
+    ## Island: 1 -- Nodes: 35  -- Criticality: Successes: 100 Failures: 0 
+    ## Island: 2 -- Nodes: 4  -- Criticality: Successes: 100 Failures: 0 
+    ## Net criticality: 100
+
+### Test case 3: outage in branch number 20
+
+``` r
+# Example of the function with branch 20 removed
+alt2.branchdat <- branchdat
+alt2.branchdat$status[20]=0
+
+c <- eval.scenario(busdat,alt2.branchdat,gendat,
+                   verbose=T)
+```
+
+    ## Component 1 : 1 2 3 4 5 6 7 8 9 10 12 13 14 15 16 17 19 20 21 22 23 25 26 28 29 39 30 18 11 31 24 27 33 34 35 36 37 38 
+    ## Slack bus already present
+    ## Slack bus: 31 Disconnected bus:  
+    ## Component 2 : 32 
+    ## Isolated node
+    ## Slack bus:  Disconnected bus: 32 
+    ## Island: 1 -- Nodes: 38  -- Criticality: Successes: 100 Failures: 0 
+    ## Island: 2 -- Nodes: 1  -- Criticality: Successes: 0 Failures: 100 
+    ## Net criticality: 97.4359
+
+### Test case 4: outage in branch number 20 and 27
+
+``` r
+# Example of the function with branches 20,27 removed
+alt3.branchdat <- branchdat
+alt3.branchdat$status[c(20,27)]=0
+
+c <- eval.scenario(busdat,alt3.branchdat,gendat,
+                   verbose=T)
+```
+
+    ## Component 1 : 1 2 3 4 5 6 7 8 9 10 12 13 14 15 16 17 21 22 23 25 26 28 29 39 30 18 11 31 24 27 35 36 37 38 
+    ## Slack bus already present
+    ## Slack bus: 31 Disconnected bus:  
+    ## Component 2 : 19 20 33 34 
+    ## At least one PV bus
+    ## Slack bus: 33 Disconnected bus:  
+    ## Component 3 : 32 
+    ## Isolated node
+    ## Slack bus:  Disconnected bus: 32 
+    ## Island: 1 -- Nodes: 34  -- Criticality: Successes: 100 Failures: 0 
+    ## Island: 2 -- Nodes: 4  -- Criticality: Successes: 100 Failures: 0 
+    ## Island: 3 -- Nodes: 1  -- Criticality: Successes: 0 Failures: 100 
+    ## Net criticality: 97.4359
+
+### Test case 5: outage in branch number 44 and 45
+
+We further alter the generator data such that the minimum generation of
+Generator 9 at bus 38 is 300 MW. This results in an infeasible island
+where the minimum generation exeeds the maximum demand. We check the
+feasibility of our algorithm in this scenario.
+
+``` r
+# Example of the function with branches 44,45 removed
+alt4.branchdat <- branchdat
+alt4.branchdat$status[c(44,45)]=0
+alt4.gendat <- gendat
+alt4.gendat$pmin[9]=300.0
+
+c <- eval.scenario(busdat,alt4.branchdat,alt4.gendat,
+                   verbose=T)
+```
+
+    ## Component 1 : 1 2 3 4 5 6 7 8 9 10 12 13 14 15 16 17 19 20 21 22 23 25 26 28 39 30 18 11 31 32 24 27 33 34 35 36 37 
+    ## Slack bus already present
+    ## Slack bus: 31 Disconnected bus:  
+    ## Component 2 : 29 38 
+    ## At least one PV bus
+    ## Slack bus: 38 Disconnected bus:  
+    ## Maximum demand: 283.5  Minimum generation: 300
+    ## Infeasible island. Zeroing demands and generations
+    ## Island: 1 -- Nodes: 37  -- Criticality: Successes: 100 Failures: 0 
+    ## Island: 2 -- Nodes: 2  -- Criticality: Successes: 0 Failures: 100 
+    ## Net criticality: 94.87179
