@@ -114,13 +114,17 @@ handle.islands = function(bus,branch,gen,verbose=FALSE)
     busind <- match(nodes,bus$bus_id)
     btypes <- bus$type[busind]
     
-    if(!(3%in%btypes))
+    if(length(nodes)==1)
     {
-      if(length(nodes)==1)
+      if(verbose) cat("Isolated node\n")
+      bus$type[busind] <- 4
+      bus$pd[busind] <- 0
+    }
+    else
+    {
+      if(3%in%btypes)
       {
-        if(verbose) cat("Isolated node\n")
-        bus$type[busind[1]] <- 4
-        bus$pd[busind] <- 0
+        if(verbose) cat("Slack bus already present\n")
       }
       else if(2%in%btypes)
       {
@@ -131,14 +135,11 @@ handle.islands = function(bus,branch,gen,verbose=FALSE)
       else
       {
         if(verbose) cat("No PV bus\n")
-        bus$type[busind[1]] <- 4
+        bus$type[busind] <- 4
         bus$pd[busind] <- rep(0,length(nodes))
       }
     }
-    else
-    {
-      if(verbose) cat("Slack bus already present\n")
-    }
+    
     if(verbose) cat("Slack bus:",
         nodes[which(bus$type[busind]==3)],
         "Disconnected bus:",
@@ -149,7 +150,7 @@ handle.islands = function(bus,branch,gen,verbose=FALSE)
     max.demand <- sum(bus$pd[busind])
     C <- gen.bus.con(bus,gen)
     min.generation <- sum(as.matrix(C%*%gen$pmin)[busind])
-    if(max.demand<min.generation)
+    if((length(nodes)>1) & (max.demand<min.generation))
     {
       if(verbose){
         cat("Maximum demand:",max.demand," Minimum generation:",min.generation)
