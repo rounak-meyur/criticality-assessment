@@ -103,7 +103,8 @@ calculate.s = function(bus, branch, gen, dat) {
   S = matrix(0, nrow(branch), nrow(bus))
   S[,noslack] = as.matrix(Bf[, noslack]) %*% inv(as.matrix(Br[noslack, noslack]))
   
-  return(list("gmin" = all_data$gmin, "gmax" = all_data$gmax, "dmax" = all_data$dmax, "dmin" = all_data$dmin, "flim" = all_data$flim, "S" = S, "bus" = bus, "gen" = gen, "graphs" = all_data$graphs))
+  return(list("gmin" = all_data$gmin, "gmax" = all_data$gmax, "dmax" = all_data$dmax, "dmin" = all_data$dmin, "flim" = all_data$flim, 
+              "S" = S, "bus" = bus, "gen" = gen, "graphs" = all_data$graphs))
 }
 
 #---------------------------------------------------------------------------------------------------------------------------------------------------
@@ -118,7 +119,7 @@ iterations = 1000
 criticality = rep(0.0, nrow(branchdat) + 1)
 data = get.data(busdat, gendat, branchdat)
 
-for (line_removal in 698:nrow(branchdat)) {
+for (line_removal in 2451:nrow(branchdat)) {
   svMisc::progress(line_removal, nrow(branchdat))
   
   branchdat = read.csv("~/branchdat.csv")
@@ -131,7 +132,7 @@ for (line_removal in 698:nrow(branchdat)) {
   }
   
   #calculate S matrix
-  S_data = calculate.s(busdat, branchdat, gendat, data)
+  S_data = calculate.s(busdat, branchdat, gendat, data) #2449
   
   gs = S_data$graphs
   
@@ -225,5 +226,5 @@ for (line_removal in 698:nrow(branchdat)) {
 }
 print(proc.time() - ptm)
 rm(iter, l, i, index)
-h = hist(criticality, breaks = 50, main = "Transmission Line Criticality Frequencies", xlab = "Criticality", ylab = "Count", col = "darkmagenta", freq = TRUE)
+h = hist(criticality, breaks = 20, main = "Transmission Line Criticality Frequencies", xlab = "Criticality", ylab = "Count", col = "darkmagenta", freq = TRUE)
 text(h$mids, h$counts, labels = h$counts, adj = c(0.5, -0.5))
