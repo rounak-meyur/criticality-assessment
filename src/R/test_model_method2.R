@@ -53,31 +53,31 @@ handle.islands = function(bus, branch, gen, dat) {
     
     if(!(3 %in% b_types)) {
       if(length(nodes) == 1) { #isolated node
-        bus$type[bus_ind[1]] = 3
+        bus$type[bus_ind] = 3
         dat$dmax[bus_ind] = 0
       } else if(2 %in% b_types) { #one or more generators
         slack = identify.slack.node(bus, gen, nodes)
-        bus$type[bus_ind[slack$max]] = 3
+        bus$type[bus_ind[slack]] = 3
       } else { #no generators
         bus$type[bus_ind[1]] = 3
         dat$dmax[bus_ind] = 0
       }
     }
-
+    
     C = gen.bus.con(bus, gen)
     if(sum(dat$dmax[bus_ind]) < sum(as.matrix(C %*% dat$gmin)[bus_ind])) {
       dat$dmax[bus_ind] = 0
       if (length(bus_ind) == 1) {
         if (bus_ind %in% gen$bus_id) {
           gen_ind = bus_ind
-        } else {
-          gen_ind = c()
+          dat$gmax[gen_ind] = 0
+          dat$gmin[gen_ind] = 0
         }
       } else {
         gen_ind = which(colSums(as.matrix(C)[bus_ind,]) == 1)
+        dat$gmax[gen_ind] = 0
+        dat$gmin[gen_ind] = 0
       }
-      dat$gmax[gen_ind] = 0
-      dat$gmin[gen_ind] = 0
     }
   }
   return(list("bus" = bus, "gen" = gen, "graphs" = gs, "gmin" = dat$gmin, "gmax" = dat$gmax, "dmax" = dat$dmax, "dmin" = dat$dmin, "flim" = dat$flim))
@@ -87,8 +87,8 @@ calculate.s = function(bus, branch, gen, dat) {
   all_data = handle.islands(bus, branch, gen, dat)
   bus = all_data$bus
   gen = all_data$gen
-
-  noslack = (1:nrow(bus))[bus$type != 3]
+  
+  noslack = (1:nrow(bus))[(bus$type != 3)]
   
   colind = c(match(branch$fbus, bus$bus_id), match(branch$tbus, bus$bus_id))
   rowind = c(seq(1, nrow(branch)), seq(1, nrow(branch)))
@@ -103,8 +103,45 @@ calculate.s = function(bus, branch, gen, dat) {
   S = matrix(0, nrow(branch), nrow(bus))
   S[,noslack] = as.matrix(Bf[, noslack]) %*% inv(as.matrix(Br[noslack, noslack]))
   
-  return(list("gmin" = all_data$gmin, "gmax" = all_data$gmax, "dmax" = all_data$dmax, "dmin" = all_data$dmin, "flim" = all_data$flim, 
+  return(list("gmin" = all_data$gmin, "gmax" = all_data$gmax, "dmax" = all_data$dmax, "dmin" = all_data$dmin, "flim" = all_data$flim,
               "S" = S, "bus" = bus, "gen" = gen, "graphs" = all_data$graphs))
+}
+
+calculate.di = function(d_max, Sg, g_max) {
+  u_i = c()
+  for (l in 1:length(d_max)) {
+    u_i = append(u_i, runif(1, 0, 1))
+  }
+  
+  S_r = sum(u_i * d_max)
+  
+  if (S_r >= Sg) {
+    d_i = c()
+    for (l in 1:length(g_max)) {
+      d_i = append(d_i, u_i[l] * d_max * Sg / S_r)
+    }
+  } else {
+    delta = 1
+    K = 1
+    while ((delta == 1 | (delta * K > 1)) & delta >= 0) { #what happens when we cannot find a valid delta
+      delta = delta - 0.01
+      c = delta * S_r / Sg
+      
+      d_i = rep(0, length(d_max))
+      ind = which(u_i >= c)
+      d_i[ind] = d_max[ind]
+      
+      if (Sg < sum(d_i)) {
+        return(c())
+      }
+      
+      K = (Sg - sum(d_max[which(u_i >= c)])) / (Sg / S_r * sum(u_i[which(u_i < c)] * d_max[which(u_i < c)]))
+    }
+    ind = which(u_i < c)
+    d_i[ind] = u_i[ind] * d_max[ind] * K * Sg / S_r
+  }
+  
+  return(d_i)
 }
 
 #---------------------------------------------------------------------------------------------------------------------------------------------------
@@ -119,7 +156,7 @@ iterations = 1000
 criticality = rep(0.0, nrow(branchdat) + 1)
 data = get.data(busdat, gendat, branchdat)
 
-for (line_removal in 2451:nrow(branchdat)) {
+for (line_removal in 0:nrow(branchdat)) {
   svMisc::progress(line_removal, nrow(branchdat))
   
   branchdat = read.csv("~/branchdat.csv")
@@ -132,7 +169,7 @@ for (line_removal in 2451:nrow(branchdat)) {
   }
   
   #calculate S matrix
-  S_data = calculate.s(busdat, branchdat, gendat, data) #2449
+  S_data = calculate.s(busdat, branchdat, gendat, data)
   
   gs = S_data$graphs
   
@@ -186,17 +223,9 @@ for (line_removal in 2451:nrow(branchdat)) {
           }
           Sg = sum(g_i)
           
-          while (Sg > sum(d_max)) {
-            g_i = c()
-            for (l in 1:length(g_max)) {
-              g_i = append(g_i, runif(1, g_min[l], g_max[l]))
-            }
-            Sg = sum(g_i)
-          }
-          
           d_i = c()
-          for (l in 1:length(d_max)) {
-            d_i = append(d_i, (d_max[l] * Sg / sum(d_max)))
+          while (isempty(d_i)) {
+            d_i = calculate.di(d_max, Sg, g_max)
           }
           
           p = (C %*% g_i) - d_i
@@ -225,6 +254,7 @@ for (line_removal in 2451:nrow(branchdat)) {
   criticality[line_removal + 1] = criticality[line_removal + 1] / total_nodes
 }
 print(proc.time() - ptm)
-rm(iter, l, i, index)
+write(criticality, "criticality_1.5_2")
+rm(iter, l, i, index, ptm)
 h = hist(criticality, breaks = 20, main = "Transmission Line Criticality Frequencies", xlab = "Criticality", ylab = "Count", col = "darkmagenta", freq = TRUE)
 text(h$mids, h$counts, labels = h$counts, adj = c(0.5, -0.5))
