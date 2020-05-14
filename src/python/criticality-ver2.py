@@ -16,11 +16,15 @@ import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 from scipy.sparse import csr_matrix
 import numpy as np
+import geopandas as gpd
 
 workpath = os.getcwd()
 datapath = str(Path(workpath).parent)+'/case/'
+figpath = str(Path(workpath).parent)+'/figs/'
 
-
+data_states = gpd.read_file(datapath+'states.shp')
+state_polygon = list(data_states[data_states.STATE_ABBR == 
+                                 'TX'].geometry.items())[0][1]
 
 #%% Functions
 def getbusdat(path,filename):
@@ -142,7 +146,7 @@ def getgendata(path,filename):
 
 #%% Extract information
 buses = getbusdat(datapath,'bus-dat.txt')
-G = createnetwork(datapath,'branchdat.csv','criticality_1.5_2.txt')
+G = createnetwork(datapath,'branchdat.csv','criticality_1.5_1.txt')
 GEN,synch_cond = getgendata(datapath,'gendat.csv')
 
 genbus = [GEN[i]['bus'] for i in GEN]
@@ -218,9 +222,12 @@ ax.set_title('Synthetic power grid of Texas with identified critical lines',
              fontsize=25)
 
 
+for pol in state_polygon:
+    x,y = pol.exterior.xy
+    ax.plot(x,y,'g--')
 
-
-
+figname = 'top-critical-1'
+fig.savefig("{}{}.png".format(figpath,figname),bbox_inches='tight')
 
 
 
