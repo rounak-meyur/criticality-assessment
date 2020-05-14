@@ -146,7 +146,7 @@ def getgendata(path,filename):
 
 #%% Extract information
 buses = getbusdat(datapath,'bus-dat.txt')
-G = createnetwork(datapath,'branchdat.csv','criticality_1.5_1.txt')
+G = createnetwork(datapath,'branchdat.csv','criticality_1.5_2.txt')
 GEN,synch_cond = getgendata(datapath,'gendat.csv')
 
 genbus = [GEN[i]['bus'] for i in GEN]
