@@ -36,10 +36,10 @@ with open(datapath+'bus-dat.txt','w') as f:
     f.write(refined)
 
 
-#%% Plot the points
-# xpt = [d[0] for d in list(D.values())]
-# ypt = [d[1] for d in list(D.values())]
-# import matplotlib.pyplot as plt
-# fig=plt.figure(figsize=(20,20))
-# ax=fig.add_subplot(111)
-# ax.scatter(xpt,ypt,s=10.0,c='r')
+#%% Criticality data
+with open(datapath+'criticality_1.5_2.txt','r') as file:
+    lines = ' '.join([temp.strip('\n') for temp in file.readlines()])
+    vals = lines.split(' ')
+
+with open(datapath+'criticality_1.5_2.txt','w') as file:
+    file.write(lines)
