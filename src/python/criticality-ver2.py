@@ -27,7 +27,7 @@ state_polygon = list(data_states[data_states.STATE_ABBR ==
                                  'TX'].geometry.items())[0][1]
 
 #%% Functions
-def getbusdat(path,filename):
+def getbusdat(path,filename,busfile):
     """
     Extracts the bus data information from the txt file containing the information.
 
@@ -45,20 +45,28 @@ def getbusdat(path,filename):
         cord: geographical coordinates of the bus
         name: name of the bus location
         kv: base kV level of the bus
+        pd: scheduled load demand at bus
 
     """
     dict_cord = {}
     dict_name = {}
     dict_kv = {}
+    dict_pd = {}
     with open(path+filename,'r') as file:
         for temp in file.readlines():
             data = temp.strip('\n').split('\t')
             dict_cord[int(data[0])] = [float(x) for x in data[3:]]
             dict_name[int(data[0])] = data[1]
             dict_kv[int(data[0])] = data[2]
+    
+    with open(path+busfile,'r') as file:
+        for temp in file.readlines()[1:]:
+            data = temp.strip('\n').split(',')
+            dict_pd[int(data[0])] = float(data[2])
+    
     # Create named tuple with bus data
-    bus = nt("Busdata",field_names=['cord','name','kv'])
-    info = bus(cord=dict_cord,name=dict_name,kv=dict_kv)
+    bus = nt("Busdata",field_names=['cord','name','kv','pd'])
+    info = bus(cord=dict_cord,name=dict_name,kv=dict_kv,pd=dict_pd)
     return info
 
 
@@ -145,7 +153,7 @@ def getgendata(path,filename):
 
 
 #%% Extract information
-buses = getbusdat(datapath,'bus-dat.txt')
+buses = getbusdat(datapath,'bus-dat.txt','busdat.csv')
 G = createnetwork(datapath,'branchdat.csv','criticality_1.5_2.txt')
 GEN,synch_cond = getgendata(datapath,'gendat.csv')
 
@@ -161,7 +169,11 @@ colind = range(len(genbus))
 rowind = [nodelist.index(b) for b in genbus]
 data = [1 for _ in range(len(genbus))]
 C = csr_matrix((data, (rowind, colind)), shape=(len(nodelist), len(genbus)))
+
+# Compute net power generation/consumption capacity
 cap = np.matmul(C.toarray(),np.array(gencap))
+load = np.array([buses.pd[n] for n in nodelist])
+pinj = cap-load
 
 # edge attributes
 edge_crit = nx.get_edge_attributes(G,'criticality')
@@ -173,20 +185,6 @@ top_critical = [e for e in edge_crit if edge_crit[e]<0.5]
 fig=plt.figure(figsize=(20,20))
 ax=fig.add_subplot(111)
 
-# Color and size nodes
-nsize = []
-ncolor = []
-for i,n in enumerate(nodelist):
-    if nodelabel[n]=='G':
-        nsize.append(cap[i]/8.0)
-        ncolor.append('lightsalmon')
-    elif nodelabel[n] == 'C':
-        nsize.append(20.0)
-        ncolor.append('green')
-    else:
-        nsize.append(1.0)
-        ncolor.append('blue')
-
 ewidth = []
 ecolor = []
 for e in edgelist:
@@ -196,6 +194,49 @@ for e in edgelist:
     else:
         ewidth.append(0.5)
         ecolor.append('black')
+
+# Color/size nodes by labels
+nsize = []
+ncolor = []
+# for i,n in enumerate(nodelist):
+#     if nodelabel[n]=='G':
+#         nsize.append(cap[i]/8.0)
+#         ncolor.append('lightsalmon')
+#     elif nodelabel[n] == 'C':
+#         nsize.append(20.0)
+#         ncolor.append('green')
+#     else:
+#         nsize.append(1.0)
+#         ncolor.append('blue')
+
+
+# leglines = [Line2D([0], [0], color='black', markerfacecolor='white', marker='*',
+#                    markersize=0,linestyle='dashed'),
+#             Line2D([0], [0], color='crimson', markerfacecolor='white', marker='*',
+#                    markersize=0,linestyle='dashed'),
+#             Line2D([0], [0], color='white', markerfacecolor='lightsalmon', 
+#                    marker='o',markersize=10),
+#             Line2D([0], [0], color='white', markerfacecolor='blue', marker='o',
+#                    markersize=10),
+#             Line2D([0], [0], color='white', markerfacecolor='green', marker='o',
+#                    markersize=10)]
+
+# labels = ['transmission lines', 'top critical edges', 'generator buses', 
+#           'substation buses', 'synchronous condenser']
+
+# Color/size by load and generation
+for i,n in enumerate(nodelist):
+    if pinj[i]>0.0:
+        nsize.append(pinj[i]/2.0)
+        ncolor.append('lightsalmon')
+    elif pinj[i]<0.0:
+        nsize.append(-pinj[i]/2.0)
+        ncolor.append('royalblue')
+    else:
+        nsize.append(5.0)
+        ncolor.append('limegreen')
+
+
 
 
 nx.draw_networkx(G,with_labels=False,ax=ax,pos=buses.cord,node_size=nsize,
@@ -209,13 +250,13 @@ leglines = [Line2D([0], [0], color='black', markerfacecolor='white', marker='*',
                    markersize=0,linestyle='dashed'),
             Line2D([0], [0], color='white', markerfacecolor='lightsalmon', 
                    marker='o',markersize=10),
-            Line2D([0], [0], color='white', markerfacecolor='blue', marker='o',
+            Line2D([0], [0], color='white', markerfacecolor='royalblue', marker='o',
                    markersize=10),
-            Line2D([0], [0], color='white', markerfacecolor='green', marker='o',
+            Line2D([0], [0], color='white', markerfacecolor='limegreen', marker='o',
                    markersize=10)]
 
 labels = ['transmission lines', 'top critical edges', 'generator buses', 
-          'substation buses', 'synchronous condenser']
+          'load buses', 'zero power injection buses']
 
 ax.legend(leglines,labels,loc='best',ncol=1,prop={'size': 15})
 ax.set_title('Synthetic power grid of Texas with identified critical lines',
@@ -224,9 +265,9 @@ ax.set_title('Synthetic power grid of Texas with identified critical lines',
 
 for pol in state_polygon:
     x,y = pol.exterior.xy
-    ax.plot(x,y,'g--')
+    ax.plot(x,y,'y--')
 
-figname = 'top-critical-1'
+figname = 'top-critical-1-genload'
 fig.savefig("{}{}.png".format(figpath,figname),bbox_inches='tight')
 
 
