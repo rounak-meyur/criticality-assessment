@@ -179,7 +179,7 @@ pinj = cap-load
 edge_crit = nx.get_edge_attributes(G,'criticality')
 edgelist = list(G.edges(keys=True))
 top_critical = [e for e in edge_crit if edge_crit[e]<0.5]
-
+rating = nx.get_edge_attributes(G,'rating')
 
 #%% Plot the network
 fig=plt.figure(figsize=(20,20))
@@ -189,42 +189,15 @@ ewidth = []
 ecolor = []
 for e in edgelist:
     if e in top_critical:
-        ewidth.append(4.5)
+        ewidth.append(rating[e]/1000.0)
         ecolor.append('crimson')
     else:
-        ewidth.append(0.5)
+        ewidth.append(rating[e]/1000.0)
         ecolor.append('black')
 
-# Color/size nodes by labels
+# Color/size by load and generation
 nsize = []
 ncolor = []
-# for i,n in enumerate(nodelist):
-#     if nodelabel[n]=='G':
-#         nsize.append(cap[i]/8.0)
-#         ncolor.append('lightsalmon')
-#     elif nodelabel[n] == 'C':
-#         nsize.append(20.0)
-#         ncolor.append('green')
-#     else:
-#         nsize.append(1.0)
-#         ncolor.append('blue')
-
-
-# leglines = [Line2D([0], [0], color='black', markerfacecolor='white', marker='*',
-#                    markersize=0,linestyle='dashed'),
-#             Line2D([0], [0], color='crimson', markerfacecolor='white', marker='*',
-#                    markersize=0,linestyle='dashed'),
-#             Line2D([0], [0], color='white', markerfacecolor='lightsalmon', 
-#                    marker='o',markersize=10),
-#             Line2D([0], [0], color='white', markerfacecolor='blue', marker='o',
-#                    markersize=10),
-#             Line2D([0], [0], color='white', markerfacecolor='green', marker='o',
-#                    markersize=10)]
-
-# labels = ['transmission lines', 'top critical edges', 'generator buses', 
-#           'substation buses', 'synchronous condenser']
-
-# Color/size by load and generation
 for i,n in enumerate(nodelist):
     if pinj[i]>0.0:
         nsize.append(pinj[i]/2.0)
@@ -267,8 +240,102 @@ for pol in state_polygon:
     x,y = pol.exterior.xy
     ax.plot(x,y,'y--')
 
-figname = 'top-critical-1-genload'
+figname = 'top-critical-1-edgewt'
 fig.savefig("{}{}.png".format(figpath,figname),bbox_inches='tight')
+
+
+#%% Examine individual contingency
+# cont = [e for e in edge_crit if edge_crit[e]<0.1][1]
+# G.remove_edge(*cont)
+
+# fig=plt.figure(figsize=(20,20))
+# ax=fig.add_subplot(111)
+
+# ewidth = []
+# ecolor = []
+# for e in edgelist:
+#     if e in top_critical:
+#         ewidth.append(4.5)
+#         ecolor.append('crimson')
+#     else:
+#         ewidth.append(0.5)
+#         ecolor.append('black')
+
+# nsize = []
+# ncolor = []
+
+# for i,n in enumerate(nodelist):
+#     if nodelabel[n]=='G':
+#         nsize.append(cap[i]/8.0)
+#         ncolor.append('lightsalmon')
+#     elif nodelabel[n] == 'C':
+#         nsize.append(20.0)
+#         ncolor.append('green')
+#     else:
+#         nsize.append(1.0)
+#         ncolor.append('blue')
+
+
+# leglines = [Line2D([0], [0], color='black', markerfacecolor='white', marker='*',
+#                    markersize=0,linestyle='dashed'),
+#             Line2D([0], [0], color='crimson', markerfacecolor='white', marker='*',
+#                    markersize=0,linestyle='dashed'),
+#             Line2D([0], [0], color='white', markerfacecolor='lightsalmon', 
+#                    marker='o',markersize=10),
+#             Line2D([0], [0], color='white', markerfacecolor='blue', marker='o',
+#                    markersize=10),
+#             Line2D([0], [0], color='white', markerfacecolor='green', marker='o',
+#                    markersize=10)]
+
+# labels = ['transmission lines', 'top critical edges', 'generator buses', 
+#           'substation buses', 'synchronous condenser']
+
+
+
+# for i,n in enumerate(nodelist):
+#     if pinj[i]>0.0:
+#         nsize.append(pinj[i]/2.0)
+#         ncolor.append('lightsalmon')
+#     elif pinj[i]<0.0:
+#         nsize.append(-pinj[i]/2.0)
+#         ncolor.append('royalblue')
+#     else:
+#         nsize.append(5.0)
+#         ncolor.append('limegreen')
+
+# nx.draw_networkx(G,with_labels=False,ax=ax,pos=buses.cord,node_size=nsize,
+#                  node_color=ncolor,edgelist=edgelist,width=ewidth,style='dashed',
+#                  edge_color=ecolor,connectionstyle='arc3,rad=-3.0')
+# ax.tick_params(left=False,bottom=False,labelleft=False,labelbottom=False)
+
+# leglines = [Line2D([0], [0], color='black', markerfacecolor='white', marker='*',
+#                    markersize=0,linestyle='dashed'),
+#             Line2D([0], [0], color='crimson', markerfacecolor='white', marker='*',
+#                    markersize=0,linestyle='dashed'),
+#             Line2D([0], [0], color='white', markerfacecolor='lightsalmon', 
+#                    marker='o',markersize=10),
+#             Line2D([0], [0], color='white', markerfacecolor='royalblue', marker='o',
+#                    markersize=10),
+#             Line2D([0], [0], color='white', markerfacecolor='limegreen', marker='o',
+#                    markersize=10)]
+
+# labels = ['transmission lines', 'top critical edges', 'generator buses', 
+#           'load buses', 'zero power injection buses']
+
+# ax.legend(leglines,labels,loc='best',ncol=1,prop={'size': 15})
+# ax.set_title('Synthetic power grid of Texas with identified critical lines',
+#              fontsize=25)
+
+
+# for pol in state_polygon:
+#     x,y = pol.exterior.xy
+#     ax.plot(x,y,'y--')
+
+# figname = 'top-critical-1-genload'
+# fig.savefig("{}{}.png".format(figpath,figname),bbox_inches='tight')
+
+
+
 
 
 
