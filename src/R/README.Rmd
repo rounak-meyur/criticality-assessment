@@ -17,8 +17,8 @@ library(igraph)
 First we initailize the file paths. As an example we show the analysis on IEEE 39 bus power system. The system has 39 buses or nodes and 46 edges or branches. There are 10 generator buses in the system.
 ```{r libs}
 # Directory paths
-path.dir <- getwd()
-data.dir <- file.path(path.dir,"src/case")
+path.dir <- dirname(getwd())
+data.dir <- file.path(path.dir,"case")
 
 # Load the csv data for the IEEE 39 bus system
 branchdat <- read.csv(file.path(data.dir,"branchdat39.csv"))
@@ -381,6 +381,48 @@ eval.scenario <- function(bus,branch,gen,verbose=F,
   return(net.crit/net.node)
 }
 ```
+
+## Estimating probability of reaching a feasible case
+The first aspect of criticality assessment arises regarding the load-generation balance in every disconnected components in the network (also termed as islands). 
+
+```{r feasibility}
+buildIslandMatrix <- function(bus,comps)
+{
+  ##################################################
+  # Creates a sparse matrix of dimension nb-by-nc  #
+  # which maps each node index to index of the     #
+  # network component where it is present          #
+  #                                                #
+  # Inputs:                                        #
+  #   bus: csv table of bus data                   #
+  #   gen: list of network components              #
+  #                                                #
+  # Returns:                                       #
+  #   M: a sparse matrix with connection info      #
+  #      given by zeros and ones                   #
+  #                                                #
+  ##################################################
+  nb <- nrow(bus)
+  nc <- length(components)
+  
+  rowind <- c()
+  colind <- c()
+  x <- rep(1,nb)
+  
+  for(i in 1:nc)
+  {
+    nodes <- as.numeric(as_ids(V(comps[[t]])))
+    rowind <- c(rowind,match(nodes,bus$bus_id))
+    colind <- c(colind,rep(i,length(nodes)))
+  }
+  M <- sparseMatrix(i=rowind,j=colind,
+                    x=x,dims=c(nb,nc))
+}
+```
+
+
+
+
 
 ## Examples of test cases
 We now show examples of handling these islands by creating line trips and settinf up new slack buses. We first divide the network into disconnected components and search for slack bus. If a slack bus is already present, we leave it as it is. If not, we search for a generator bus and select the first among them as the slack bus for the island. If there is no generator bus, we convert each of the buses to a slack bus.
