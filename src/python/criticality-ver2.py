@@ -27,6 +27,20 @@ state_polygon = list(data_states[data_states.STATE_ABBR ==
                                  'TX'].geometry.items())[0][1]
 
 #%% Functions
+def get_neighbors(graph,edge,n=4):
+    nodelist = [edge[0],edge[1]]
+    new_nodes = [edge[0],edge[1]]
+    for i in range(n):
+        neighbors = []
+        for node in new_nodes:
+            neighbors.extend(list(nx.neighbors(graph,node)))
+        neighbors = list(set(neighbors))
+        new_nodes = [node for node in neighbors if node not in nodelist]
+        nodelist = nodelist + new_nodes
+    return nx.subgraph(graph,nodelist)
+
+
+
 def getbusdat(path,filename,busfile):
     """
     Extracts the bus data information from the txt file containing the information.
@@ -96,7 +110,8 @@ def createnetwork(path,filename,criticality_file):
     
     # Get criticality values
     with open(path+criticality_file,'r') as file:
-        crit_vals = [float(x) for x in file.readlines()[0].split(' ')]
+        line_file = file.readlines()[2:]
+        crit_vals = [float(x.strip('\n').split(',')[1]) for x in line_file]
     
     # Get edgelist and ratings
     with open(path+filename,'r') as file:
@@ -114,7 +129,7 @@ def createnetwork(path,filename,criticality_file):
                     e_count[tuple(list(edge)[::-1])] += 1
                     e = (int(data[0]),int(data[1]),str(e_count[tuple(list(edge)[::-1])]))
             rate[e] = float(data[5])
-            criticality[e] = crit_vals[i+1]
+            criticality[e] = crit_vals[i]
     graph = nx.MultiGraph()
     graph.add_edges_from(list(rate.keys()))
     nx.set_edge_attributes(graph,rate,'rating')
@@ -154,7 +169,7 @@ def getgendata(path,filename):
 
 #%% Extract information
 buses = getbusdat(datapath,'bus-dat.txt','busdat.csv')
-G = createnetwork(datapath,'branchdat.csv','criticality_1.5_2.txt')
+G = createnetwork(datapath,'branchdat.csv','criticality_base_1.5_2.csv')
 GEN,synch_cond = getgendata(datapath,'gendat.csv')
 
 genbus = [GEN[i]['bus'] for i in GEN]
@@ -178,21 +193,22 @@ pinj = cap-load
 # edge attributes
 edge_crit = nx.get_edge_attributes(G,'criticality')
 edgelist = list(G.edges(keys=True))
-top_critical = [e for e in edge_crit if edge_crit[e]<0.5]
+top_critical = [e for e in edge_crit if edge_crit[e]>0.5]
 rating = nx.get_edge_attributes(G,'rating')
 
 #%% Plot the network
-fig=plt.figure(figsize=(20,20))
+fig=plt.figure(figsize=(50,50))
 ax=fig.add_subplot(111)
 
 ewidth = []
 ecolor = []
 for e in edgelist:
     if e in top_critical:
-        ewidth.append(rating[e]/1000.0)
+        # ewidth.append(rating[e]/1000.0)
+        ewidth.append(10)
         ecolor.append('crimson')
     else:
-        ewidth.append(rating[e]/1000.0)
+        ewidth.append(rating[e]/500.0)
         ecolor.append('black')
 
 # Color/size by load and generation
@@ -241,108 +257,58 @@ for pol in state_polygon:
     ax.plot(x,y,'y--')
 
 figname = 'top-critical-1-edgewt'
-fig.savefig("{}{}.png".format(figpath,figname),bbox_inches='tight')
-
-
-#%% Examine individual contingency
-# cont = [e for e in edge_crit if edge_crit[e]<0.1][1]
-# G.remove_edge(*cont)
-
-# fig=plt.figure(figsize=(20,20))
-# ax=fig.add_subplot(111)
-
-# ewidth = []
-# ecolor = []
-# for e in edgelist:
-#     if e in top_critical:
-#         ewidth.append(4.5)
-#         ecolor.append('crimson')
-#     else:
-#         ewidth.append(0.5)
-#         ecolor.append('black')
-
-# nsize = []
-# ncolor = []
-
-# for i,n in enumerate(nodelist):
-#     if nodelabel[n]=='G':
-#         nsize.append(cap[i]/8.0)
-#         ncolor.append('lightsalmon')
-#     elif nodelabel[n] == 'C':
-#         nsize.append(20.0)
-#         ncolor.append('green')
-#     else:
-#         nsize.append(1.0)
-#         ncolor.append('blue')
-
-
-# leglines = [Line2D([0], [0], color='black', markerfacecolor='white', marker='*',
-#                    markersize=0,linestyle='dashed'),
-#             Line2D([0], [0], color='crimson', markerfacecolor='white', marker='*',
-#                    markersize=0,linestyle='dashed'),
-#             Line2D([0], [0], color='white', markerfacecolor='lightsalmon', 
-#                    marker='o',markersize=10),
-#             Line2D([0], [0], color='white', markerfacecolor='blue', marker='o',
-#                    markersize=10),
-#             Line2D([0], [0], color='white', markerfacecolor='green', marker='o',
-#                    markersize=10)]
-
-# labels = ['transmission lines', 'top critical edges', 'generator buses', 
-#           'substation buses', 'synchronous condenser']
-
-
-
-# for i,n in enumerate(nodelist):
-#     if pinj[i]>0.0:
-#         nsize.append(pinj[i]/2.0)
-#         ncolor.append('lightsalmon')
-#     elif pinj[i]<0.0:
-#         nsize.append(-pinj[i]/2.0)
-#         ncolor.append('royalblue')
-#     else:
-#         nsize.append(5.0)
-#         ncolor.append('limegreen')
-
-# nx.draw_networkx(G,with_labels=False,ax=ax,pos=buses.cord,node_size=nsize,
-#                  node_color=ncolor,edgelist=edgelist,width=ewidth,style='dashed',
-#                  edge_color=ecolor,connectionstyle='arc3,rad=-3.0')
-# ax.tick_params(left=False,bottom=False,labelleft=False,labelbottom=False)
-
-# leglines = [Line2D([0], [0], color='black', markerfacecolor='white', marker='*',
-#                    markersize=0,linestyle='dashed'),
-#             Line2D([0], [0], color='crimson', markerfacecolor='white', marker='*',
-#                    markersize=0,linestyle='dashed'),
-#             Line2D([0], [0], color='white', markerfacecolor='lightsalmon', 
-#                    marker='o',markersize=10),
-#             Line2D([0], [0], color='white', markerfacecolor='royalblue', marker='o',
-#                    markersize=10),
-#             Line2D([0], [0], color='white', markerfacecolor='limegreen', marker='o',
-#                    markersize=10)]
-
-# labels = ['transmission lines', 'top critical edges', 'generator buses', 
-#           'load buses', 'zero power injection buses']
-
-# ax.legend(leglines,labels,loc='best',ncol=1,prop={'size': 15})
-# ax.set_title('Synthetic power grid of Texas with identified critical lines',
-#              fontsize=25)
-
-
-# for pol in state_polygon:
-#     x,y = pol.exterior.xy
-#     ax.plot(x,y,'y--')
-
-# figname = 'top-critical-1-genload'
 # fig.savefig("{}{}.png".format(figpath,figname),bbox_inches='tight')
 
 
+#%% Examine individual contingency
+
+interest = get_neighbors(G,top_critical[1],n=2)
+
+from mpl_toolkits.axes_grid1.inset_locator import zoomed_inset_axes, mark_inset
+axins = zoomed_inset_axes(ax, 1.5, loc=3)
+axins.set_aspect(1)
+xpts = [buses.cord[n][0] for n in list(interest.nodes())]
+ypts = [buses.cord[n][1] for n in list(interest.nodes())]
 
 
+edgelist_inset = list(interest.edges(keys=True))
+nodelist_inset = list(interest.nodes())
+ewidth = []
+ecolor = []
+for e in edgelist_inset:
+    alt_e = (e[1],e[0],e[2])
+    if e in top_critical or alt_e in top_critical:
+        if e in rating: ewidth.append(rating[e]/100.0)
+        else: ewidth.append(rating[alt_e]/100.0)
+        ecolor.append('crimson')
+    else:
+        if e in rating: ewidth.append(rating[e]/100.0)
+        else: ewidth.append(rating[alt_e]/100.0)
+        ecolor.append('black')
+
+# Color/size by load and generation
+nsize = []
+ncolor = []
+for i,n in enumerate(nodelist_inset):
+    if pinj[i]>0.0:
+        nsize.append(pinj[i]/2.0)
+        ncolor.append('lightsalmon')
+    elif pinj[i]<0.0:
+        nsize.append(-pinj[i]/2.0)
+        ncolor.append('royalblue')
+    else:
+        nsize.append(5.0)
+        ncolor.append('limegreen')
 
 
+nx.draw_networkx(interest,with_labels=False,ax=axins,pos=buses.cord,node_size=nsize,
+                 node_color=ncolor,edgelist=edgelist_inset,width=ewidth,style='dashed',
+                 edge_color=ecolor,connectionstyle='arc3,rad=-3.0')
 
+axins.set_xlim(min(xpts),max(xpts))
+axins.set_ylim(min(ypts),max(ypts))
+axins.tick_params(bottom=False,left=False,labelleft=False,labelbottom=False)
 
-
-
-
+mark_inset(ax, axins, loc1=1, loc2=2, fc="none", ec="0.5")
 
 
