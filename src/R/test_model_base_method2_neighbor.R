@@ -199,7 +199,7 @@ calculate.crit = function(edge_ind, flim, f) {
 }
 
 neighbor_check = function(branch, mul) {
-  check.criticality <- read.delim2("~/check-criticality.txt", header=FALSE, stringsAsFactors=FALSE)
+  check.criticality = read.delim2("~/check-criticality.txt", header = FALSE, stringsAsFactors = FALSE)
   for (line in 1:nrow(check.criticality)) {
     rem = check.criticality[line, 2]
     rem = strsplit(rem, ",")
@@ -216,7 +216,7 @@ branchdat = read.csv("~/branchdat.csv")
 gendat = read.csv("~/gendat.csv")
 busdat = read.csv("~/busdat.csv")
 
-branchdat = neighbor_check(branchdat, 4)
+branchdat = neighbor_check(branchdat, 5)
 
 base_case_list = base_case(busdat, gendat, branchdat)
 
@@ -343,8 +343,7 @@ for (i in 1:(length(criticality)-1)) {
 }
 
 #---------------------------------------------------------------------------------------------------------------------------------------------------
-write.csv(criticality, "criticality_base_1.5_2_neighbor4.csv")
-rm(iter, l, i, index, ptm)
+write.csv(criticality, "criticality_base_1.5_2_neighbor5.csv")
 h = hist(criticality, breaks = 20, main = "Transmission Line Criticality Frequencies", xlab = "Criticality", ylab = "Count", col = "darkmagenta", 
          freq = TRUE)
 text(h$mids, h$counts, labels = h$counts, adj = c(0.5, -0.5))
