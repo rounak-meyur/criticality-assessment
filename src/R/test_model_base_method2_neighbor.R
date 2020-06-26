@@ -257,6 +257,8 @@ full_model = function(rate, rateA_all, neighbor, neighbor_file, load, load_file)
     cl = makeCluster(28)
     registerDoParallel(cl)
     
+    print(v)
+    
     ptime = system.time({
       c = foreach (line_removal = 1:nrow(branchdat), .packages = c("igraph", "Matrix", "pracma", "spatstat.utils"), .combine = 'c')  %dopar% {
 
@@ -394,46 +396,46 @@ h = hist(criticality1.5N[1,], breaks = 20, main = "Transmission Line Criticality
 text(h$mids, h$counts, labels = h$counts, adj = c(0.5, -0.5))
 
 #---------------------------------------------------------------------------------------------------------------------------------------------------
-criticality_base_1.5_2 = read.csv("~/criticality_base_1.5_2.csv")
-criticality_base_1.5_2_neighbors = read.csv("~/criticality_base_1.5_2_neighbors")
-e = read.delim2("~/check-criticality-1.5.txt", header = FALSE, stringsAsFactors = FALSE)
-x = e[,1]
-x = x + 1
-plot(criticality_base_1.5_2[x, 2], ylim = c(0, 1), col = "black")
-points(criticality_base_1.5_2_neighbors[x, 2], col = "red")
-points(criticality_base_1.5_2_neighbors[x, 3], col = "purple")
-points(criticality_base_1.5_2_neighbors[x, 4], col = "blue")
-points(criticality_base_1.5_2_neighbors[x, 5], col = "green")
-
-# criticality_base_1.25_2 = read.csv("~/criticality_base_1.25_2.csv")
-# criticality_base_1.25_2_neighbors = read.csv("~/criticality_base_1.25_2_neighbors")
-# e = read.delim2("~/check-criticality-1.25.txt", header = FALSE, stringsAsFactors = FALSE)
-# x = e[,1]
-# x = x + 1
-# plot(criticality_base_1.25_2[x, 2], ylim = c(0, 1), col = "black")
-# points(criticality_base_1.25_2_neighbors[x, 2], col = "red")
-# points(criticality_base_1.25_2_neighbors[x, 3], col = "purple")
-# points(criticality_base_1.25_2_neighbors[x, 4], col = "blue")
-# points(criticality_base_1.25_2_neighbors[x, 5], col = "green")
-
 # criticality_base_1.5_2 = read.csv("~/criticality_base_1.5_2.csv")
-# criticality_base_1.5_2_loads = read.csv("~/criticality_base_1.5_2_loads")
+# criticality_base_1.5_2_neighbors = read.csv("~/criticality_base_1.5_2_neighbors.csv")
 # e = read.delim2("~/check-criticality-1.5.txt", header = FALSE, stringsAsFactors = FALSE)
 # x = e[,1]
 # x = x + 1
 # plot(criticality_base_1.5_2[x, 2], ylim = c(0, 1), col = "black")
-# points(criticality_base_1.5_2_loads[x, 2], col = "red")
-# points(criticality_base_1.5_2_loads[x, 3], col = "purple")
-# points(criticality_base_1.5_2_loads[x, 4], col = "blue")
-# points(criticality_base_1.5_2_loads[x, 5], col = "green")
+# points(criticality_base_1.5_2_neighbors[2, x], col = "red")
+# points(criticality_base_1.5_2_neighbors[3, x], col = "purple")
+# points(criticality_base_1.5_2_neighbors[4, x], col = "blue")
+# points(criticality_base_1.5_2_neighbors[5, x], col = "green")
+
+criticality_base_1.25_2 = read.csv("~/criticality_base_1.25_2.csv")
+criticality_base_1.25_2_neighbors = read.csv("~/criticality_base_1.25_2_neighbors.csv")
+e = read.delim2("~/check-criticality-1.25.txt", header = FALSE, stringsAsFactors = FALSE)
+x = e[,1]
+# x = x + 1
+plot(criticality_base_1.25_2[x, 2], ylim = c(0, 1), col = "black")
+points(criticality_base_1.25_2_neighbors[2, x], col = "red")
+points(criticality_base_1.25_2_neighbors[3, x], col = "purple")
+points(criticality_base_1.25_2_neighbors[4, x], col = "blue")
+points(criticality_base_1.25_2_neighbors[5, x], col = "green")
+
+# criticality_base_1.5_2 = read.csv("~/criticality_base_1.5_2.csv")
+# criticality_base_1.5_2_loads = read.csv("~/criticality_base_1.5_2_loads.csv")
+# e = read.delim2("~/check-criticality-1.5.txt", header = FALSE, stringsAsFactors = FALSE)
+# x = e[,1]
+# # x = x + 1
+# plot(criticality_base_1.5_2[x, 2], ylim = c(0, 1), col = "black")
+# points(criticality_base_1.5_2_loads[2, x], col = "red")
+# points(criticality_base_1.5_2_loads[3, x], col = "purple")
+# points(criticality_base_1.5_2_loads[4, x], col = "blue")
+# points(criticality_base_1.5_2_loads[5, x], col = "green")
 
 # criticality_base_1.25_2 = read.csv("~/criticality_base_1.5_2.csv")
-# criticality_base_1.25_2_loads = read.csv("~/criticality_base_1.5_2_loads")
+# criticality_base_1.25_2_loads = read.csv("~/criticality_base_1.5_2_loads.csv")
 # e = read.delim2("~/check-criticality-1.25.txt", header = FALSE, stringsAsFactors = FALSE)
 # x = e[,1]
 # x = x + 1
 # plot(criticality_base_1.25_2[x, 2], ylim = c(0, 1), col = "black")
-# points(criticality_base_1.25_2_loads[x, 2], col = "red")
-# points(criticality_base_1.25_2_loads[x, 3], col = "purple")
-# points(criticality_base_1.25_2_loads[x, 4], col = "blue")
-# points(criticality_base_1.25_2_loads[x, 5], col = "green")
+# points(criticality_base_1.25_2_loads[2, x], col = "red")
+# points(criticality_base_1.25_2_loads[3, x], col = "purple")
+# points(criticality_base_1.25_2_loads[4, x], col = "blue")
+# points(criticality_base_1.25_2_loads[5, x], col = "green")
