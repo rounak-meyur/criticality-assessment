@@ -221,36 +221,36 @@ sample.base <- function(bus,gen,base=100.0,
   return(P)
 }
 
-eval.feasibility <- function(bus,gen,branch,brind,
-                             base=100.0,max.iter=1000,
-                             verbose=FALSE)
+eval.balance.dev <- function(bus,branch,pinj,
+                             max.iter=1000)
 {
   ##################################################
-  # Evaluates the criticality of a scenario in the #
-  # power grid network.                            #
+  # Evaluates the balance deviation for a scenario #
+  # in the power grid network.                     #
   #                                                #
   # Inputs:                                        #
   #   bus: csv table of bus data                   #
-  #   gen: csv table of generator data             #
   #   branch: csv table of branch data             #
   #   brind: index of branch to be taken out       #
-  #   base: base MVA: default to 100.0 MVA         #
-  #   max.iter: number of random iterations        # 
-  #   verbose: print outputs                       #
+  #   pinj: random samples of power injection      # 
   #                                                #
   ##################################################
   
-  # Create a graph from the branch data
-  g <- graph.data.frame(branch[, 1:2],directed=FALSE)
-  g <- delete_edges(g, brind)
-  # Decompose the graph into components
-  comps <- decompose(g, min.vertices = 1)
-  M <- buildIslandMatrix(bus,comps)
-  P <- sample.base(bus,gen,base=base,max.iter=max.iter,
-                   verbose=verbose)
-  dept.matrix <- as.matrix(M)%*%P
-  dept <- apply(dept.matrix,2,norm.vec)
-  return(dept)
+  nl <- nrow(branch)
+  dev <- array(NA,dim=c(max.iter,nl))
+  for(i in 1:nl)
+  {
+    # Create a graph from the branch data
+    g <- graph.data.frame(branch[, 1:2],directed=FALSE)
+    g <- delete_edges(g,i)
+    # Decompose the graph into components
+    comps <- decompose(g, min.vertices = 1)
+    M <- buildIslandMatrix(bus,comps)
+    dept.matrix <- as.matrix(M)%*%pinj
+    dept <- apply(dept.matrix,2,norm.vec)
+    dev[,i] <- dept
+  }
+  return(dev)
 }
 
 
@@ -266,30 +266,44 @@ branchdat <- read.csv(file.path(data.dir,"branchdat.csv"))
 gendat <- read.csv(file.path(data.dir,"gendat.csv"))
 busdat <- read.csv(file.path(data.dir,"busdat.csv"))
 
+P <- sample.base(busdat,gendat,base=100.0,max.iter=1000,
+                 verbose=TRUE)
+deviations <- eval.balance.dev(busdat,branchdat,P,max.iter=1000)
 
 # Plot histogram of feasibility
 par(mfrow=c(2,2))
-dept <- eval.feasibility(busdat,gendat,branchdat,20)
+dept <- deviations[,20]
 hist(dept,xlab="Departure",ylab="Density",freq = FALSE,
      breaks=100,col='pink',
      main="Histogram of departure from feasibility with branch 20 removed")
 
-dept <- eval.feasibility(busdat,gendat,branchdat,27)
+dept <- deviations[,27]
 hist(dept,xlab="Departure",ylab="Density",freq = FALSE,
      breaks=100,col='violet',
      main="Histogram of departure from feasibility with branch 27 removed")
-dept <- eval.feasibility(busdat,gendat,branchdat,1)
+
+dept <- deviations[,1]
 hist(dept,xlab="Departure",ylab="Density",freq = FALSE,
      breaks=100,col='cyan',
      main="Histogram of departure from feasibility with branch 1 removed")
 
-dept <- eval.feasibility(busdat,gendat,branchdat,43)
+dept <- deviations[,43]
 hist(dept,xlab="Departure",ylab="Density",freq = FALSE,
      breaks=100,col='green',
      main="Histogram of departure from feasibility with branch 43 removed")
 
 
+par(mfrow=c(1,1))
+mean.balance.dev <- apply(deviations,2,mean)
+plot(mean.balance.dev,type='h',col=c("red","blue","green"),
+     xlab="Branch Index",ylab="Balance Deviation",
+     main="Mean Balance Deviation for each branch")
 
+par(mfrow=c(1,1))
+median.balance.dev <- apply(deviations,2,median)
+plot(median.balance.dev,type='h',col=c("red","blue","green"),
+     xlab="Branch Index",ylab="Median Balance Deviation",
+     main="Median Balance Deviation for each branch")
 ###################################################################
 I <- matrix(0,nrow=nrow(branchdat),ncol=2)
 for(i in 1:nrow(branchdat))

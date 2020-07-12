@@ -17,6 +17,7 @@ from matplotlib.lines import Line2D
 from scipy.sparse import csr_matrix
 import numpy as np
 import geopandas as gpd
+import pandas as pd
 
 workpath = os.getcwd()
 datapath = str(Path(workpath).parent)+'/case/'
@@ -27,7 +28,7 @@ state_polygon = list(data_states[data_states.STATE_ABBR ==
                                  'TX'].geometry.items())[0][1]
 
 #%% Functions
-def get_neighbors(graph,edge,n=4):
+def get_neighbors(graph,edge,n=1):
     nodelist = [edge[0],edge[1]]
     new_nodes = [edge[0],edge[1]]
     for i in range(n):
@@ -168,8 +169,9 @@ def getgendata(path,filename):
 
 
 #%% Extract information
+K = 1.25
 buses = getbusdat(datapath,'bus-dat.txt','busdat.csv')
-G = createnetwork(datapath,'branchdat.csv','criticality_base_1.5_2.csv')
+G = createnetwork(datapath,'branchdat.csv','criticality_base_'+str(K)+'_2.csv')
 GEN,synch_cond = getgendata(datapath,'gendat.csv')
 
 genbus = [GEN[i]['bus'] for i in GEN]
@@ -189,11 +191,13 @@ C = csr_matrix((data, (rowind, colind)), shape=(len(nodelist), len(genbus)))
 cap = np.matmul(C.toarray(),np.array(gencap))
 load = np.array([buses.pd[n] for n in nodelist])
 pinj = cap-load
+pinj = {k:pinj[i] for i,k in enumerate(nodelist)}
+nx.set_node_attributes(G,pinj,'power')
 
 # edge attributes
 edge_crit = nx.get_edge_attributes(G,'criticality')
 edgelist = list(G.edges(keys=True))
-top_critical = [e for e in edge_crit if edge_crit[e]>0.5]
+top_critical = [e for e in edge_crit if edge_crit[e]>0.75]
 rating = nx.get_edge_attributes(G,'rating')
 
 #%% Plot the network
@@ -208,21 +212,21 @@ for e in edgelist:
         ewidth.append(10)
         ecolor.append('crimson')
     else:
-        ewidth.append(rating[e]/500.0)
+        ewidth.append(rating[e]/1000.0)
         ecolor.append('black')
 
 # Color/size by load and generation
 nsize = []
 ncolor = []
-for i,n in enumerate(nodelist):
-    if pinj[i]>0.0:
-        nsize.append(pinj[i]/2.0)
+for n in nodelist:
+    if pinj[n]>0.0:
+        nsize.append(pinj[n]/2.0)
         ncolor.append('lightsalmon')
-    elif pinj[i]<0.0:
-        nsize.append(-pinj[i]/2.0)
+    elif pinj[n]<0.0:
+        nsize.append(-pinj[n]/2.0)
         ncolor.append('royalblue')
     else:
-        nsize.append(5.0)
+        nsize.append(1.0)
         ncolor.append('limegreen')
 
 
@@ -238,16 +242,16 @@ leglines = [Line2D([0], [0], color='black', markerfacecolor='white', marker='*',
             Line2D([0], [0], color='crimson', markerfacecolor='white', marker='*',
                    markersize=0,linestyle='dashed'),
             Line2D([0], [0], color='white', markerfacecolor='lightsalmon', 
-                   marker='o',markersize=10),
+                   marker='o',markersize=25),
             Line2D([0], [0], color='white', markerfacecolor='royalblue', marker='o',
-                   markersize=10),
+                   markersize=25),
             Line2D([0], [0], color='white', markerfacecolor='limegreen', marker='o',
-                   markersize=10)]
+                   markersize=25)]
 
 labels = ['transmission lines', 'top critical edges', 'generator buses', 
           'load buses', 'zero power injection buses']
 
-ax.legend(leglines,labels,loc='best',ncol=1,prop={'size': 15})
+ax.legend(leglines,labels,loc='best',ncol=1,prop={'size': 25})
 ax.set_title('Synthetic power grid of Texas with identified critical lines',
              fontsize=25)
 
@@ -256,59 +260,148 @@ for pol in state_polygon:
     x,y = pol.exterior.xy
     ax.plot(x,y,'y--')
 
-figname = 'top-critical-1-edgewt'
-# fig.savefig("{}{}.png".format(figpath,figname),bbox_inches='tight')
+
 
 
 #%% Examine individual contingency
 
-interest = get_neighbors(G,top_critical[1],n=2)
+def draw_subnetwork(ax,graph,edge_interest,n=4):
+    """
+    Creates the sub network from the original network which just includes the
+    neighbors of the interesting edge. The figure displays the rating of the
+    lines in the neighborhood of the critical line.
+
+    Parameters
+    ----------
+    ax : matplotlib axes object
+        The axes on which the networkx network would be plotted.
+    graph: networkx MultiGraph object
+        The networkx graph representing the power grid network.
+    n : integer, optional
+        Number of hops to consider from the interesting edge.. The default is 4.
+
+    Returns
+    -------
+    ax : matplotlib axes object
+        The axes on which the networkx network would be plotted.
+
+    """
+    rate = nx.get_edge_attributes(graph,'rating')
+    p_inj = nx.get_node_attributes(graph,'power')
+    interest = get_neighbors(graph,edge_interest,n)
+    xpts = [buses.cord[n][0] for n in list(interest.nodes())]
+    ypts = [buses.cord[n][1] for n in list(interest.nodes())]
+    
+    # Color by rating
+    edgelist_inset = list(interest.edges(keys=True))
+    nodelist_inset = list(interest.nodes())
+    ewidth = []
+    ecolor = []
+    for e in edgelist_inset:
+        alt_e = (e[1],e[0],e[2])
+        if e in top_critical or alt_e in top_critical:
+            if e in rate: ewidth.append(rate[e]/200.0)
+            else: ewidth.append(rate[alt_e]/200.0)
+            ecolor.append('crimson')
+        else:
+            if e in rate: ewidth.append(rate[e]/200.0)
+            else: ewidth.append(rate[alt_e]/200.0)
+            ecolor.append('black')
+    
+    # Color/size by load and generation
+    nsize = []
+    ncolor = []
+    for n in nodelist_inset:
+        if p_inj[n]>0.0:
+            nsize.append(p_inj[n]/2.0)
+            ncolor.append('lightsalmon')
+        elif p_inj[n]<0.0:
+            nsize.append(-p_inj[n]/2.0)
+            ncolor.append('royalblue')
+        else:
+            nsize.append(1.0)
+            ncolor.append('limegreen')
+    
+    elabel={(r[0],r[1]):rate[r] for r in rate \
+            if r in edgelist_inset or (r[1],r[0],r[2]) in edgelist_inset}
+    nx.draw_networkx(interest,with_labels=False,ax=ax,nodelist=nodelist_inset,
+                     pos=buses.cord,node_size=nsize,node_color=ncolor,
+                     edgelist=edgelist_inset,width=ewidth,style='dashed',
+                     edge_color=ecolor)
+    nx.draw_networkx_edge_labels(interest,ax=ax,pos=buses.cord,edge_labels=elabel,
+                                 font_weight='normal',font_size=25)
+    
+    
+    ax.set_xlim(min(xpts),max(xpts))
+    ax.set_ylim(min(ypts),max(ypts))
+    ax.tick_params(bottom=False,left=False,labelleft=False,labelbottom=False)
+    return ax
+
+
 
 from mpl_toolkits.axes_grid1.inset_locator import zoomed_inset_axes, mark_inset
 axins = zoomed_inset_axes(ax, 1.5, loc=3)
 axins.set_aspect(1)
-xpts = [buses.cord[n][0] for n in list(interest.nodes())]
-ypts = [buses.cord[n][1] for n in list(interest.nodes())]
+axins = draw_subnetwork(axins,G,top_critical[0],n=3)
+mark_inset(ax, ax, loc1=1, loc2=2, fc="none", ec="0.5")
+figname = 'top-critical-edgewt-inset'
+fig.savefig("{}{}.png".format(figpath,figname),bbox_inches='tight')
+
+fig=plt.figure(figsize=(50,50))
+ax=fig.add_subplot(111)
+ax = draw_subnetwork(ax,G,top_critical[0],n=3)
+figname = 'top-critical-edgewt-solo'
+fig.savefig("{}{}.png".format(figpath,figname),bbox_inches='tight')
+
+#%% Get edge indices
+# Get edgelist and ratings
+def get_edgelist(path,filename):
+    e_count = {}
+    edgelist = []
+    with open(path+filename,'r') as file:
+        for i,temp in enumerate(file.readlines()[1:]):
+            data = temp.strip('\n').split(',')
+            edge = (int(data[0]),int(data[1]))
+            if edge not in e_count and tuple(list(edge)[::-1]) not in e_count:
+                e_count[edge] = 1
+                e = (int(data[0]),int(data[1]),str(e_count[edge]))
+            elif edge in e_count: 
+                e_count[edge] += 1
+                e = (int(data[0]),int(data[1]),str(e_count[edge]))
+            else: 
+                e_count[tuple(list(edge)[::-1])] += 1
+                e = (int(data[0]),int(data[1]),str(e_count[tuple(list(edge)[::-1])]))
+            edgelist.append(e)
+    return edgelist
+            
+data = ''
+all_edges = get_edgelist(datapath,'branchdat.csv')
+for edge in top_critical:
+    n_graph = get_neighbors(G,edge,n=1)
+    n_edges = list(n_graph.edges(keys=True))
+    crit_index = all_edges.index(edge)+1 if edge in all_edges \
+        else all_edges.index((edge[1],edge[0],edge[2]))+1
+    neighbor_index = [all_edges.index(e)+1 if e in all_edges \
+                      else all_edges.index((e[1],e[0],e[2]))+1 for e in n_edges]
+    neighbor_index.remove(crit_index)
+    data += str(crit_index)+'\t'+','.join([str(x) for x in neighbor_index])+'\n'
+with open(datapath+'check-criticality-'+str(K)+'.txt','w') as f:
+    f.write(data)
 
 
-edgelist_inset = list(interest.edges(keys=True))
-nodelist_inset = list(interest.nodes())
-ewidth = []
-ecolor = []
-for e in edgelist_inset:
-    alt_e = (e[1],e[0],e[2])
-    if e in top_critical or alt_e in top_critical:
-        if e in rating: ewidth.append(rating[e]/100.0)
-        else: ewidth.append(rating[alt_e]/100.0)
-        ecolor.append('crimson')
-    else:
-        if e in rating: ewidth.append(rating[e]/100.0)
-        else: ewidth.append(rating[alt_e]/100.0)
-        ecolor.append('black')
+#%% Get node indices
+def get_nodelist(path,filename):
+    df_nodes = pd.read_table(path+filename,sep=',')
+    return df_nodes['bus_id'].tolist()
 
-# Color/size by load and generation
-nsize = []
-ncolor = []
-for i,n in enumerate(nodelist_inset):
-    if pinj[i]>0.0:
-        nsize.append(pinj[i]/2.0)
-        ncolor.append('lightsalmon')
-    elif pinj[i]<0.0:
-        nsize.append(-pinj[i]/2.0)
-        ncolor.append('royalblue')
-    else:
-        nsize.append(5.0)
-        ncolor.append('limegreen')
-
-
-nx.draw_networkx(interest,with_labels=False,ax=axins,pos=buses.cord,node_size=nsize,
-                 node_color=ncolor,edgelist=edgelist_inset,width=ewidth,style='dashed',
-                 edge_color=ecolor,connectionstyle='arc3,rad=-3.0')
-
-axins.set_xlim(min(xpts),max(xpts))
-axins.set_ylim(min(ypts),max(ypts))
-axins.tick_params(bottom=False,left=False,labelleft=False,labelbottom=False)
-
-mark_inset(ax, axins, loc1=1, loc2=2, fc="none", ec="0.5")
-
-
+data = ''        
+all_nodes = get_nodelist(datapath,'busdat.csv')
+for edge in top_critical:
+    n_graph = get_neighbors(G,edge,n=1)
+    n_nodes = list(n_graph.nodes())
+    crit_index = all_edges.index(edge)+1 if edge in all_edges \
+        else all_edges.index((edge[1],edge[0],edge[2]))+1
+    neighbor_index = [all_nodes.index(n)+1 for n in n_nodes]
+    data += str(crit_index)+'\t'+','.join([str(x) for x in neighbor_index])+'\n'
+with open(datapath+'check-load-criticality-'+str(K)+'.txt','w') as f:
+    f.write(data)
