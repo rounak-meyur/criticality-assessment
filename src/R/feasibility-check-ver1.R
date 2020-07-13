@@ -304,6 +304,9 @@ median.balance.dev <- apply(deviations,2,median)
 plot(median.balance.dev,type='h',col=c("red","blue","green"),
      xlab="Branch Index",ylab="Median Balance Deviation",
      main="Median Balance Deviation for each branch")
+
+balance.dev <- data.frame(mean=mean.balance.dev,median=median.balance.dev)
+
 ###################################################################
 I <- matrix(0,nrow=nrow(branchdat),ncol=2)
 for(i in 1:nrow(branchdat))
@@ -318,3 +321,18 @@ for(i in 1:nrow(branchdat))
     I[i,t] <- length(nodes)
   }
 }
+
+
+###################################################################
+results.dir <- file.path(path.dir,"results")
+write.csv(balance.dev,file.path(results.dir,"balance_deviation.csv"),row.names=F)
+criticality.data <- read.csv(file.path(results.dir,"criticality_base_1.5_2.csv"))
+criticality.vals <- criticality.data[2:nrow(criticality.data),2]
+
+par(mfrow=c(1,2))
+plot(criticality.vals,mean.balance.dev,
+     xlab="Criticality",
+     ylab="Mean balance deviation")
+plot(criticality.vals,median.balance.dev,
+     xlab="Criticality",
+     ylab="Median balance deviation")
