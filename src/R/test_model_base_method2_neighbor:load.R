@@ -196,60 +196,40 @@ calculate.crit = function(edge_ind, flim, f, mul) {
   return(crit)
 }
 
-neighbor_check = function(branch, mul, st) {
-  check.criticality = read.delim2(st, header = FALSE, stringsAsFactors = FALSE)
-  line_id = c()
-  for (line in 1:nrow(check.criticality)) {
-    rem = check.criticality[line, 2]
-    rem = strsplit(rem, ",")
-    rem = rem[[1]]
-    line_id = append(line_id, rem)
-  }
-  line_id = unique(line_id)
-  for (l in 1:length(line_id)) {
-    branch[as.integer(line_id[l]), 6] = branch[as.integer(line_id[l]), 6] * mul
+neighbor_check = function(branch, mul, check.criticality, line) {
+  rem = check.criticality[line, 2]
+  rem = strsplit(rem, ",")
+  rem = rem[[1]]
+  for (l in 1:length(rem)) {
+    branch[as.integer(rem[l]), 6] = branch[as.integer(rem[l]), 6] * mul
   }
   return(branch)
 }
 
-load_check = function(bus, mul, st) {
-  check.criticality = read.delim2(st, header = FALSE, stringsAsFactors = FALSE)
-  line_id = c()
-  for (line in 1:nrow(check.criticality)) {
-    rem = check.criticality[line, 2]
-    rem = strsplit(rem, ",")
-    rem = rem[[1]]
-    bus_id = append(bus_id, rem)
-  }
-  bus_id = unique(bus_id)
-  for (l in 1:length(bus_id)) {
-    bus[as.integer(bus_id[l]), 3] = bus[as.integer(bus_id[l]), 3] * mul
+load_check = function(bus, mul, check.criticality, line) {
+  rem = check.criticality[line, 2]
+  rem = strsplit(rem, ",")
+  rem = rem[[1]]
+  for (l in 1:length(rem)) {
+    bus[as.integer(rem[l]), 3] = bus[as.integer(rem[l]), 3] * mul
   }
   return(bus)
 }
 
 full_model = function(rate, rateA_all, neighbor, neighbor_file, load, load_file) {
-  criticality_final = zeros(4, 3207)
+  if (neighbor) {
+    check.criticality = read.delim2(neighbor_file, header = FALSE, stringsAsFactors = FALSE)
+  }
+  
+  if (load) {
+    check.criticality = read.delim2(load_file, header = FALSE, stringsAsFactors = FALSE)
+  }
+  
+  x = check.criticality[,1]
+
+  criticality_final = zeros(length(rate), length(x))
   
   for (v in rate) {
-
-    branchdat = read.csv("~/branchdat.csv")
-    gendat = read.csv("~/gendat.csv")
-    busdat = read.csv("~/busdat.csv")
-    
-    if (neighbor) {
-      branchdat = neighbor_check(branchdat, v, neighbor_file)
-    }
-    
-    if (load) {
-      busdat = load_check(busdat, v, load_file)
-    }
-    
-    base_case_list = base_case(busdat, gendat, branchdat)
-    
-    iterations = 1000
-    
-    data = get.data(busdat, gendat, branchdat)
     
     require("doParallel")
     require("foreach")
@@ -260,22 +240,28 @@ full_model = function(rate, rateA_all, neighbor, neighbor_file, load, load_file)
     print(v)
     
     ptime = system.time({
-      c = foreach (line_removal = 1:nrow(branchdat), .packages = c("igraph", "Matrix", "pracma", "spatstat.utils"), .combine = 'c')  %dopar% {
+      c = foreach (line_removal = 1:length(x), .packages = c("igraph", "Matrix", "pracma", "spatstat.utils"), .combine = 'c')  %dopar% {
 
         branchdat = read.csv("~/branchdat.csv")
         gendat = read.csv("~/gendat.csv")
         busdat = read.csv("~/busdat.csv")
         
         if (neighbor) {
-          branchdat = neighbor_check(branchdat, v, neighbor_file)
+          branchdat = neighbor_check(branchdat, v, check.criticality, line_removal)
         }
         
         if (load) {
-          busdat = load_check(busdat, v, load_file)
+          busdat = load_check(busdat, v, check.criticality, line_removal)
         }
         
+        base_case_list = base_case(busdat, gendat, branchdat)
+        
+        iterations = 1000
+        
+        data = get.data(busdat, gendat, branchdat)
+        
         criticality = 0
-        branchdat[line_removal, 11] = 0
+        branchdat[x[line_removal], 11] = 0
         S_data = calculate.s(busdat, branchdat, gendat, data)
         gs = S_data$graphs
         total_nodes = 0
@@ -371,8 +357,8 @@ full_model = function(rate, rateA_all, neighbor, neighbor_file, load, load_file)
     
     stopCluster(cl)
     
-    for (i in 1:(nrow(branchdat))) {
-      criticality_final[which(rate == v), i + 1] = c[[i]]
+    for (i in 1:(length(c))) {
+      criticality_final[which(rate == v), i] = c[i]
     }
   }
   
@@ -380,10 +366,10 @@ full_model = function(rate, rateA_all, neighbor, neighbor_file, load, load_file)
 }
 
 #---------------------------------------------------------------------------------------------------------------------------------------------------
-criticality1.5N = full_model(c(3, 4, 5, 6), 1.5, TRUE, "~/check-criticality-1.5.txt", FALSE, "")
-criticality1.25N = full_model(c(3, 4, 5, 6), 1.25, TRUE, "~/check-criticality-1.25.txt", FALSE, "")
-criticality1.5L = full_model(c(0.9, 0.8, 0.7, 0.6), 1.5, FALSE, "", TRUE, "~/check-load-criticality-1.5.txt")
-criticality1.25L = full_model(c(0.9, 0.8, 0.7, 0.6), 1.25, FALSE, "", TRUE, "~/check-load-criticality-1.25.txt")
+criticality1.5N = full_model(seq(1.1, 3, 0.1), TRUE, "~/check-criticality-1.5.txt", FALSE, "")
+criticality1.25N = full_model(seq(1.1, 3, 0.1), 1.25, TRUE, "~/check-criticality-1.25.txt", FALSE, "")
+criticality1.5L = full_model(seq(0.99, 0, -0.01), 1.5, FALSE, "", TRUE, "~/check-load-criticality-1.5.txt")
+criticality1.25L = full_model(seq(0.99, 0, -0.01), 1.25, FALSE, "", TRUE, "~/check-load-criticality-1.25.txt")
 
 write.csv(criticality1.5N, "criticality_base_1.5_2_neighbors.csv")
 write.csv(criticality1.25N, "criticality_base_1.25_2_neighbors.csv")
@@ -396,46 +382,134 @@ h = hist(criticality1.5N[1,], breaks = 20, main = "Transmission Line Criticality
 text(h$mids, h$counts, labels = h$counts, adj = c(0.5, -0.5))
 
 #---------------------------------------------------------------------------------------------------------------------------------------------------
-# criticality_base_1.5_2 = read.csv("~/criticality_base_1.5_2.csv")
-# criticality_base_1.5_2_neighbors = read.csv("~/criticality_base_1.5_2_neighbors.csv")
-# e = read.delim2("~/check-criticality-1.5.txt", header = FALSE, stringsAsFactors = FALSE)
-# x = e[,1]
-# x = x + 1
-# plot(criticality_base_1.5_2[x, 2], ylim = c(0, 1), col = "black")
-# points(criticality_base_1.5_2_neighbors[2, x], col = "red")
-# points(criticality_base_1.5_2_neighbors[3, x], col = "purple")
-# points(criticality_base_1.5_2_neighbors[4, x], col = "blue")
-# points(criticality_base_1.5_2_neighbors[5, x], col = "green")
+criticality_base_1.5_2 = read.csv("~/criticality_base_1.5_2.csv")
+criticality_base_1.5_2_neighbors = read.csv("~/criticality_base_1.5_2_neighbors.csv")
+e = read.delim2("~/check-criticality-1.5.txt", header = FALSE, stringsAsFactors = FALSE)
+x = e[,1]
+x = x + 1
+plot(x = seq(1, 3, 0.3), 
+     y = c(criticality_base_1.5_2[x[1], 2], as.numeric(criticality_base_1.5_2_neighbors[1:7,2])), 
+     ylim = c(0, 1), col = "black", type = 'l', xlab = "multiple", ylab = "criticality")
+lines(x = seq(1, 3, 0.3), 
+     y = c(criticality_base_1.5_2[x[2], 2], as.numeric(criticality_base_1.5_2_neighbors[1:7,3])), 
+     ylim = c(0, 1), col = "red", type = 'l')
+lines(x = seq(1, 3, 0.3), 
+     y = c(criticality_base_1.5_2[x[3], 2], as.numeric(criticality_base_1.5_2_neighbors[1:7,4])), 
+     ylim = c(0, 1), col = "purple", type = 'l')
+lines(x = seq(1, 3, 0.3), 
+     y = c(criticality_base_1.5_2[x[4], 2], as.numeric(criticality_base_1.5_2_neighbors[1:7,5])), 
+     ylim = c(0, 1), col = "blue", type = 'l')
 
 criticality_base_1.25_2 = read.csv("~/criticality_base_1.25_2.csv")
 criticality_base_1.25_2_neighbors = read.csv("~/criticality_base_1.25_2_neighbors.csv")
 e = read.delim2("~/check-criticality-1.25.txt", header = FALSE, stringsAsFactors = FALSE)
 x = e[,1]
-# x = x + 1
-plot(criticality_base_1.25_2[x, 2], ylim = c(0, 1), col = "black")
-points(criticality_base_1.25_2_neighbors[2, x], col = "red")
-points(criticality_base_1.25_2_neighbors[3, x], col = "purple")
-points(criticality_base_1.25_2_neighbors[4, x], col = "blue")
-points(criticality_base_1.25_2_neighbors[5, x], col = "green")
+x = x + 1
+plot(x = seq(1, 3, 0.3), 
+     y = c(criticality_base_1.25_2[x[1], 2], as.numeric(criticality_base_1.25_2_neighbors[1:7,2])), 
+     ylim = c(0, 1), col = "black", type = 'l', xlab = "multiple", ylab = "criticality")
+lines(x = seq(1, 3, 0.3), 
+      y = c(criticality_base_1.25_2[x[2], 2], as.numeric(criticality_base_1.25_2_neighbors[1:7,3])), 
+      ylim = c(0, 1), col = "red", type = 'l')
+lines(x = seq(1, 3, 0.3), 
+      y = c(criticality_base_1.25_2[x[3], 2], as.numeric(criticality_base_1.25_2_neighbors[1:7,4])), 
+      ylim = c(0, 1), col = "purple", type = 'l')
+lines(x = seq(1, 3, 0.3), 
+      y = c(criticality_base_1.25_2[x[4], 2], as.numeric(criticality_base_1.25_2_neighbors[1:7,5])), 
+      ylim = c(0, 1), col = "blue", type = 'l')
+lines(x = seq(1, 3, 0.3), 
+      y = c(criticality_base_1.25_2[x[5], 2], as.numeric(criticality_base_1.25_2_neighbors[1:7,6])), 
+      ylim = c(0, 1), col = "green", type = 'l')
+lines(x = seq(1, 3, 0.3), 
+      y = c(criticality_base_1.25_2[x[6], 2], as.numeric(criticality_base_1.25_2_neighbors[1:7,7])), 
+      ylim = c(0, 1), col = "orange", type = 'l')
+lines(x = seq(1, 3, 0.3), 
+      y = c(criticality_base_1.25_2[x[7], 2], as.numeric(criticality_base_1.25_2_neighbors[1:7,8])), 
+      ylim = c(0, 1), col = "black", type = 'l')
+lines(x = seq(1, 3, 0.3), 
+      y = c(criticality_base_1.25_2[x[8], 2], as.numeric(criticality_base_1.25_2_neighbors[1:7,9])), 
+      ylim = c(0, 1), col = "red", type = 'l')
+lines(x = seq(1, 3, 0.3), 
+      y = c(criticality_base_1.25_2[x[9], 2], as.numeric(criticality_base_1.25_2_neighbors[1:7,10])), 
+      ylim = c(0, 1), col = "purple", type = 'l')
+lines(x = seq(1, 3, 0.3), 
+      y = c(criticality_base_1.25_2[x[10], 2], as.numeric(criticality_base_1.25_2_neighbors[1:7,11])), 
+      ylim = c(0, 1), col = "blue", type = 'l')
+lines(x = seq(1, 3, 0.3), 
+      y = c(criticality_base_1.25_2[x[11], 2], as.numeric(criticality_base_1.25_2_neighbors[1:7,12])), 
+      ylim = c(0, 1), col = "green", type = 'l')
+lines(x = seq(1, 3, 0.3), 
+      y = c(criticality_base_1.25_2[x[12], 2], as.numeric(criticality_base_1.25_2_neighbors[1:7,13])), 
+      ylim = c(0, 1), col = "orange", type = 'l')
+lines(x = seq(1, 3, 0.3), 
+      y = c(criticality_base_1.25_2[x[13], 2], as.numeric(criticality_base_1.25_2_neighbors[1:7,14])), 
+      ylim = c(0, 1), col = "black", type = 'l')
+lines(x = seq(1, 3, 0.3), 
+      y = c(criticality_base_1.25_2[x[14], 2], as.numeric(criticality_base_1.25_2_neighbors[1:7,15])), 
+      ylim = c(0, 1), col = "red", type = 'l')
 
-# criticality_base_1.5_2 = read.csv("~/criticality_base_1.5_2.csv")
-# criticality_base_1.5_2_loads = read.csv("~/criticality_base_1.5_2_loads.csv")
-# e = read.delim2("~/check-criticality-1.5.txt", header = FALSE, stringsAsFactors = FALSE)
-# x = e[,1]
-# # x = x + 1
-# plot(criticality_base_1.5_2[x, 2], ylim = c(0, 1), col = "black")
-# points(criticality_base_1.5_2_loads[2, x], col = "red")
-# points(criticality_base_1.5_2_loads[3, x], col = "purple")
-# points(criticality_base_1.5_2_loads[4, x], col = "blue")
-# points(criticality_base_1.5_2_loads[5, x], col = "green")
+criticality_base_1.5_2 = read.csv("~/criticality_base_1.5_2.csv")
+criticality_base_1.5_2_loads = read.csv("~/criticality_base_1.5_2_loads.csv")
+e = read.delim2("~/check-load-criticality-1.5.txt", header = FALSE, stringsAsFactors = FALSE)
+x = e[,1]
+x = x + 1
+plot(x = seq(1, 0, -0.01), 
+     y = c(criticality_base_1.5_2[x[1], 2], as.numeric(criticality_base_1.5_2_loads[,2])), 
+     ylim = c(0, 1), col = "black", type = 'l', xlab = "multiple", ylab = "criticality", xlim = rev(range(rate)))
+lines(x = seq(1, 0, -0.01), 
+      y = c(criticality_base_1.5_2[x[2], 2], as.numeric(criticality_base_1.5_2_loads[,3])), 
+      ylim = c(0, 1), col = "red", type = 'l')
+lines(x = seq(1, 0, -0.01), 
+      y = c(criticality_base_1.5_2[x[3], 2], as.numeric(criticality_base_1.5_2_loads[,4])), 
+      ylim = c(0, 1), col = "purple", type = 'l')
+lines(x = seq(1, 0, -0.01), 
+      y = c(criticality_base_1.5_2[x[4], 2], as.numeric(criticality_base_1.5_2_loads[,5])), 
+      ylim = c(0, 1), col = "blue", type = 'l')
 
-# criticality_base_1.25_2 = read.csv("~/criticality_base_1.5_2.csv")
-# criticality_base_1.25_2_loads = read.csv("~/criticality_base_1.5_2_loads.csv")
-# e = read.delim2("~/check-criticality-1.25.txt", header = FALSE, stringsAsFactors = FALSE)
-# x = e[,1]
-# x = x + 1
-# plot(criticality_base_1.25_2[x, 2], ylim = c(0, 1), col = "black")
-# points(criticality_base_1.25_2_loads[2, x], col = "red")
-# points(criticality_base_1.25_2_loads[3, x], col = "purple")
-# points(criticality_base_1.25_2_loads[4, x], col = "blue")
-# points(criticality_base_1.25_2_loads[5, x], col = "green")
+criticality_base_1.25_2 = read.csv("~/criticality_base_1.25_2.csv")
+criticality_base_1.25_2_loads = read.csv("~/criticality_base_1.25_2_loads.csv")
+e = read.delim2("~/check-load-criticality-1.25.txt", header = FALSE, stringsAsFactors = FALSE)
+x = e[,1]
+x = x + 1
+plot(x = seq(1, 0, -0.01), 
+     y = c(criticality_base_1.25_2[x[1], 2], as.numeric(criticality_base_1.25_2_loads[,2])), 
+     ylim = c(0, 1), col = "black", type = 'l', xlab = "multiple", ylab = "criticality")
+lines(x = seq(1, 0, -0.01), 
+      y = c(criticality_base_1.25_2[x[2], 2], as.numeric(criticality_base_1.25_2_loads[,3])), 
+      ylim = c(0, 1), col = "red", type = 'l')
+lines(x = seq(1, 0, -0.01), 
+      y = c(criticality_base_1.25_2[x[3], 2], as.numeric(criticality_base_1.25_2_loads[,4])), 
+      ylim = c(0, 1), col = "purple", type = 'l')
+lines(x = seq(1, 0, -0.01), 
+      y = c(criticality_base_1.25_2[x[4], 2], as.numeric(criticality_base_1.25_2_loads[,5])), 
+      ylim = c(0, 1), col = "blue", type = 'l')
+lines(x = seq(1, 0, -0.01), 
+      y = c(criticality_base_1.25_2[x[5], 2], as.numeric(criticality_base_1.25_2_loads[,6])), 
+      ylim = c(0, 1), col = "green", type = 'l')
+lines(x = seq(1, 0, -0.01), 
+      y = c(criticality_base_1.25_2[x[6], 2], as.numeric(criticality_base_1.25_2_loads[,7])), 
+      ylim = c(0, 1), col = "orange", type = 'l')
+lines(x = seq(1, 0, -0.01), 
+      y = c(criticality_base_1.25_2[x[7], 2], as.numeric(criticality_base_1.25_2_loads[,8])), 
+      ylim = c(0, 1), col = "black", type = 'l')
+lines(x = seq(1, 0, -0.01), 
+      y = c(criticality_base_1.25_2[x[8], 2], as.numeric(criticality_base_1.25_2_loads[,9])), 
+      ylim = c(0, 1), col = "red", type = 'l')
+lines(x = seq(1, 0, -0.01), 
+      y = c(criticality_base_1.25_2[x[9], 2], as.numeric(criticality_base_1.25_2_loads[,10])), 
+      ylim = c(0, 1), col = "purple", type = 'l')
+lines(x = seq(1, 0, -0.01), 
+      y = c(criticality_base_1.25_2[x[10], 2], as.numeric(criticality_base_1.25_2_loads[,11])), 
+      ylim = c(0, 1), col = "blue", type = 'l')
+lines(x = seq(1, 0, -0.01), 
+      y = c(criticality_base_1.25_2[x[11], 2], as.numeric(criticality_base_1.25_2_loads[,12])), 
+      ylim = c(0, 1), col = "green", type = 'l')
+lines(x = seq(1, 0, -0.01), 
+      y = c(criticality_base_1.25_2[x[12], 2], as.numeric(criticality_base_1.25_2_loads[,13])), 
+      ylim = c(0, 1), col = "orange", type = 'l')
+lines(x = seq(1, 0, -0.01), 
+      y = c(criticality_base_1.25_2[x[13], 2], as.numeric(criticality_base_1.25_2_loads[,14])), 
+      ylim = c(0, 1), col = "black", type = 'l')
+lines(x = seq(1, 0, -0.01), 
+      y = c(criticality_base_1.25_2[x[14], 2], as.numeric(criticality_base_1.25_2_loads[,15])), 
+      ylim = c(0, 1), col = "red", type = 'l')
