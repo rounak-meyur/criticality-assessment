@@ -21,9 +21,9 @@ path.dir <- dirname(getwd())
 data.dir <- file.path(path.dir,"case")
 
 # Load the csv data for the IEEE 39 bus system
-branchdat <- read.csv(file.path(data.dir,"branchdat39.csv"))
-gendat <- read.csv(file.path(data.dir,"gendat39.csv"))
-busdat <- read.csv(file.path(data.dir,"busdat39.csv"))
+branchdat <- read.csv(file.path(data.dir,"branchdat.csv"))
+gendat <- read.csv(file.path(data.dir,"gendat.csv"))
+busdat <- read.csv(file.path(data.dir,"busdat.csv"))
 ```
 
 ## Bus to generator connection matrix
@@ -297,7 +297,7 @@ sample.d <- function(limits,gi)
 ## Estimating probability of reaching a feasible case
 The first aspect of criticality assessment arises regarding the load-generation balance in every disconnected components in the network (also termed as islands). We need to make sure that the load-generation balance is maintained in each island. It is easy to show that the feasible space shrinks after a contingency, i.e., the load-generation balance constraint gets stringent after the loss of a branch. We aim to evaluate this departure in feasibility through the computation of the L-2 norm of the load-generation mismatch. First, we evaluate multiple feasible scenarios for the base case and then we apply these scenarios for a given contingency. Thereafter, we compute the load-generation mismatch in each generated island. The departure in feasibility for each scenario for a given contingency is evaluated as the L-2 norm of the mismatch over all islands.
 
-```{r feasibility}
+```{r balancedev}
 norm.vec <- function(x) sqrt(sum(x^2))
 
 
@@ -400,13 +400,13 @@ sample.base <- function(bus,gen,base=100.0,
   return(P)
 }
 
-eval.feasibility <- function(bus,gen,branch,brind,
+eval.balance.dev <- function(bus,gen,branch,brind,
                              base=100.0,max.iter=1000,
                              verbose=FALSE)
 {
   ##################################################
-  # Evaluates the criticality of a scenario in the #
-  # power grid network.                            #
+  # Evaluates the balance deviation for a scenario #
+  # in the power grid network.                     #
   #                                                #
   # Inputs:                                        #
   #   bus: csv table of bus data                   #
