@@ -248,7 +248,7 @@ c = foreach (line_removal = 1:nrow(branchdat), .packages = c("igraph", "Matrix",
           u = 1
           ind = intersect(which(branchdat$fbus == mat[i, 1]), which(branchdat$tbus == mat[i, 2]))
           index = intersect(which(branchdat$fbus == mat[i, 1]), which(branchdat$tbus == mat[i, 2]))[u]
-          if (is.na(index)) {
+          if (is.na(index) | (ch[index] == 1 & length(ind) == 1)) {
             u = 1
             index = intersect(which(branchdat$fbus == mat[i, 2]), which(branchdat$tbus == mat[i, 1]))[u]
             while (ch[index] != 0) {
@@ -258,23 +258,12 @@ c = foreach (line_removal = 1:nrow(branchdat), .packages = c("igraph", "Matrix",
             ch[index] = 1
             mat[i, 3] = index
           } else {
-            if (ch[index] == 1 & length(ind) == 1) {
-              u = 1
-              index = intersect(which(branchdat$fbus == mat[i, 2]), which(branchdat$tbus == mat[i, 1]))[u]
-              while (ch[index] != 0) {
-                u = u + 1
-                index = intersect(which(branchdat$fbus == mat[i, 2]), which(branchdat$tbus == mat[i, 1]))[u]
-              }
-              ch[index] = 1
-              mat[i, 3] = index
-            } else {
-              while (ch[index] != 0) {
-                u = u + 1
-                index = intersect(which(branchdat$fbus == mat[i, 1]), which(branchdat$tbus == mat[i, 2]))[u]
-              }
-              ch[index] = 1
-              mat[i, 3] = index
+            while (ch[index] != 0) {
+              u = u + 1
+              index = intersect(which(branchdat$fbus == mat[i, 1]), which(branchdat$tbus == mat[i, 2]))[u]
             }
+            ch[index] = 1
+            mat[i, 3] = index
           }
         }
         
