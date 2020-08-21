@@ -210,6 +210,7 @@ data = get.data(busdat, gendat, branchdat)
 line_removal = 85
 
 flows = matrix(nrow = 3206, ncol = 1000)
+
 branchdat[line_removal, 11] = 0
 S_data = calculate.s(busdat, branchdat, gendat, data)
 gs = S_data$graphs
