@@ -176,12 +176,12 @@ base_case = function(bus, gen, branch) {
   return(list("C" = C, "S.comp" = S.comp, "flim" = flim, "edge_ind" = edge_ind, "bus_ind" = bus_ind, "gen_ind" = gen_ind))
 }
 
-calculate.crit = function(edge_ind, flim, f) {
+calculate.crit = function(edge_ind, flim, f, mul) {
   fail = 0
   success = 0
   crit = 0
   for (l in 1:length(edge_ind)) {
-    range = c(0, flim[l] * 1.5)
+    range = c(0, flim[l] * mul)
     if (inside.range(abs(f[l]), range)) {
       success = success + 1
     }
@@ -196,10 +196,10 @@ calculate.crit = function(edge_ind, flim, f) {
   return(crit)
 }
 
-out.of.bounds = function(edge_ind, flim, f) {
+out.of.bounds = function(edge_ind, flim, f, mul) {
   res = matrix(nrow = 3206, ncol = 1)
   for (l in 1:length(edge_ind)) {
-    range = c(0, flim[l] * 1.5)
+    range = c(0, flim[l] * , mul)
     if (inside.range(abs(f[l]), range)) {
       res[edge_ind[l], 1] = 0
     }
@@ -215,8 +215,6 @@ branchdat = read.csv("~/branchdat.csv")
 gendat = read.csv("~/gendat.csv")
 busdat = read.csv("~/busdat.csv")
 
-results = matrix(nrow = 3206, ncol = 1000)
-
 base_case_list = base_case(busdat, gendat, branchdat)
 
 iterations = 1000
@@ -225,6 +223,7 @@ data = get.data(busdat, gendat, branchdat)
 
 line_removal = 85
 
+results = matrix(nrow = 3206, ncol = 1000)
 branchdat[line_removal, 11] = 0
 S_data = calculate.s(busdat, branchdat, gendat, data)
 gs = S_data$graphs
@@ -313,15 +312,15 @@ for (graph in gs) {
         f = S.comp %*% p
         f_base = S.comp_base %*% p_base
         
-        base = calculate.crit(edge_ind_base, flim_base, f_base)
+        base = calculate.crit(edge_ind_base, flim_base, f_base, 1.25)
         if (base == 1) {
           iter = iter + 1
           crit_base = crit_base + 1
-          results[,crit_base] = out.of.bounds(edge_ind, flim, f)
+          results[,crit_base] = out.of.bounds(edge_ind, flim, f, 1.25)
         }
       }
     }
   }
 }
 #---------------------------------------------------------------------------------------------------------------------------------------------------
-write.csv(results_3007, "results_3007.csv")
+write.csv(results, "results_1.25_3007.csv", row.names = F)
