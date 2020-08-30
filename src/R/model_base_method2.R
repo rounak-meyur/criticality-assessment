@@ -8,6 +8,7 @@ library(graphics)
 library(doParallel)
 
 #---------------------------------------------------------------------------------------------------------------------------------------------------
+# store max generation, min generation, max demand, min demand, and rate A for entire network
 get.data = function(bus, gen, branch) {
   g_max = gen$pmax / 100.0
   g_min = gen$pmin / 100.0
@@ -17,6 +18,7 @@ get.data = function(bus, gen, branch) {
   return(list("gmin" = g_min, "gmax" = g_max, "dmax" = d_max, "dmin" = d_min, "flim" = flim))
 }
 
+# create a connection sparse matrix linking generators and busses
 gen.bus.con = function(bus, gen) {
   rowind = match(gen$bus_id, bus$bus_id)
   colind = 1:nrow(gen)
@@ -25,6 +27,7 @@ gen.bus.con = function(bus, gen) {
   return(C)
 }
 
+# select the number of the node that will be the slack node
 identify.slack.node = function(bus, gen, nlist) {
   C = gen.bus.con(bus, gen)
   bus_ind = match(nlist, bus$bus_id)
@@ -32,6 +35,7 @@ identify.slack.node = function(bus, gen, nlist) {
   return(which.max(bus.pmax))
 }
 
+# identify how many generators are in the island and mark generation as 0 when total demand is less than total generation
 handle.islands = function(bus, branch, gen, dat) {
   g = graph.data.frame(branch[, 1:2], directed = FALSE)
   g = delete_edges(g, which(branch$status == 0))
@@ -74,6 +78,7 @@ handle.islands = function(bus, branch, gen, dat) {
   return(list("bus" = bus, "gen" = gen, "graphs" = gs, "gmin" = dat$gmin, "gmax" = dat$gmax, "dmax" = dat$dmax, "dmin" = dat$dmin, "flim" = dat$flim))
 }
 
+# create the A sparse matrix, the b vector, the Bf using b, Br is A transpose times Bf, and S is Bf times the inverseof Br
 calculate.s = function(bus, branch, gen, dat) {
   all_data = handle.islands(bus, branch, gen, dat)
   bus = all_data$bus
@@ -98,42 +103,53 @@ calculate.s = function(bus, branch, gen, dat) {
               "S" = S, "bus" = bus, "gen" = gen, "graphs" = all_data$graphs))
 }
 
+# random scenario generation
 calculate.di = function(d_max, Sg, g_max) {
+  # draw random realizations from continuous uniform distributions
   u_i = c()
   for (l in 1:length(d_max)) {
     u_i = append(u_i, runif(1, 0, 1))
   }
   
+  # compute the sum of random demands 
   S_r = sum(u_i * d_max)
   
   if (S_r >= Sg) {
     d_i = c()
     for (l in 1:length(g_max)) {
+      # compute demands
       d_i = append(d_i, u_i[l] * d_max * Sg / S_r)
     }
   } else {
     delta = 1
     K = 1
+    # choosea delta as high as possible with K starting at 1
     while ((delta == 1 | (delta * K > 1)) & delta >= 0) {
       delta = delta - 0.01
+      # define c
       c = delta * S_r / Sg
       
       d_i = rep(0, length(d_max))
       ind = which(u_i >= c)
+      # assign maximum demands for those random u_i exceeding c 
       d_i[ind] = d_max[ind]
       
       if (Sg < sum(d_i)) {
         return(c())
       }
       
+      # compute scaling ratio of distributing leftover generation among the unaccounted demands 
       K = (Sg - sum(d_max[which(u_i >= c)])) / (Sg / S_r * sum(u_i[which(u_i < c)] * d_max[which(u_i < c)]))
     }
     ind = which(u_i < c)
+    # compute the remaining demands for those demands where u_i is less than c 
     d_i[ind] = u_i[ind] * d_max[ind] * K * Sg / S_r
   }
+  # return random scenario
   return(d_i)
 }
 
+# compute matrix data for network in the base case (pre-contingency)
 base_case = function(bus, gen, branch) {
   data = get.data(bus, gen, branch)
   S_data = calculate.s(bus, branch, gen, data)
@@ -145,13 +161,13 @@ base_case = function(bus, gen, branch) {
   bus_ind = which(S_data$bus$bus_id %in% nodes)
   C = as.matrix(gen.bus.con(S_data$bus, S_data$gen))[bus_ind,]
   gen_ind = which(colSums(C) == 1)
-  # C = C[,gen_ind]
-  
+
   d_max = S_data$dmax[bus_ind]
   d_min = S_data$dmin[bus_ind]
   g_max = S_data$gmax[gen_ind]
   g_min = S_data$gmin[gen_ind]
   
+  # create a matrix representing the edge list of the network
   mat = as.matrix(as_edgelist(graph))
   mat = cbind(mat, 0)
   for (i in 1:nrow(mat)) {
@@ -163,10 +179,11 @@ base_case = function(bus, gen, branch) {
       mat[i, 3] = which(branchdat$fbus == mat[i, 1])[index]
     }
   }
+  # adjust numbering/indices of lines
   for (i in 1:(nrow(mat) - 1)) {
     if (nrow(mat) > 1) {
-      if (as.numeric(mat[i, 3]) == as.numeric(mat[i + 1,3])) {
-        mat[i + 1,3] = as.numeric(mat[i, 3]) + 1
+      if (as.numeric(mat[i, 3]) == as.numeric(mat[i + 1, 3])) {
+        mat[i + 1, 3] = as.numeric(mat[i, 3]) + 1
       }
     }
   }
@@ -177,6 +194,7 @@ base_case = function(bus, gen, branch) {
   return(list("C" = C, "S.comp" = S.comp, "flim" = flim, "edge_ind" = edge_ind, "bus_ind" = bus_ind, "gen_ind" = gen_ind))
 }
 
+# deternine whether the network in the post contingency is successful (1) or not (0)
 calculate.crit = function(edge_ind, flim, f) {
   fail = 0
   success = 0
@@ -202,6 +220,7 @@ branchdat = read.csv("~/branchdat.csv")
 gendat = read.csv("~/gendat.csv")
 busdat = read.csv("~/busdat.csv")
 
+# generate data for the base case
 base_case_list = base_case(busdat, gendat, branchdat)
 
 iterations = 1000
@@ -226,13 +245,16 @@ c = foreach (line_removal = 1:nrow(branchdat), .packages = c("igraph", "Matrix",
   gs = S_data$graphs
   total_nodes = 0
   
+  # loop through each graph (in case the line removal causes separate islands)
   for (graph in gs) {
     nodes = as.numeric(as_ids(V(graph)))
     total_nodes = total_nodes + length(nodes)
+    # check if the island is not an isolated node
     if (length(nodes) > 1) {
       bus_ind = which(S_data$bus$bus_id %in% nodes)
       C = as.matrix(gen.bus.con(S_data$bus, S_data$gen))[bus_ind,]
       gen_ind = which(colSums(C) == 1)
+      # make sure the island has generators
       if (!isempty(gen_ind)) {
         C = C[,gen_ind]
         
@@ -241,6 +263,7 @@ c = foreach (line_removal = 1:nrow(branchdat), .packages = c("igraph", "Matrix",
         g_max = S_data$gmax[gen_ind]
         g_min = S_data$gmin[gen_ind]
         
+        # create a matrix representing the edge list of the network
         mat = as.matrix(as_edgelist(graph))
         mat = cbind(mat, 0)
         ch = rep(0, 3206)
@@ -276,6 +299,7 @@ c = foreach (line_removal = 1:nrow(branchdat), .packages = c("igraph", "Matrix",
         bad = 0
         iter = 1
         
+        # create 1000 random scenarios
         while (iter <= iterations) {
           svMisc::progress(iter, iterations)
           
@@ -286,41 +310,53 @@ c = foreach (line_removal = 1:nrow(branchdat), .packages = c("igraph", "Matrix",
           bus_ind_base = base_case_list$bus_ind
           gen_ind_base = base_case_list$gen_ind
           
+          # randomly generate generation levels between min and max
           g_i = c()
           for (l in 1:length(g_max)) {
             g_i = append(g_i, runif(1, g_min[l], g_max[l]))
           }
+          # calculate sum of generations
           Sg = sum(g_i)
           
           g_i_base = rep(0, length(gen_ind_base))
+          # base case generations are the same with generation indices
           g_i_base[gen_ind] = g_i
           
+          # caclulate demands using function
           d_i = c()
           while (isempty(d_i)) {
             d_i = calculate.di(d_max, Sg, g_max)
           }
           
           d_i_base = rep(0, length(bus_ind_base))
+          # base case demands are the same with bus indices
           d_i_base[bus_ind] = d_i
           
+          # calculate p in pre and post contingency
           p = (C %*% g_i) - d_i
           p_base = (C_base %*% g_i_base) - d_i_base
           
+          # calculate f in pre and post contingency
           f = S.comp %*% p
           f_base = S.comp_base %*% p_base
           
+          # calculate if scenario is successful in the base case
           base = calculate.crit(edge_ind_base, flim_base, f_base)
+          # if the scenario is successful in the base case, calculate the criticality post-contingency
           if (base == 1) {
             iter = iter + 1
             crit_base = crit_base + 1
             crit = crit + calculate.crit(edge_ind, flim, f)
           }
         }
+        # assign criticality as a percentage of successful in base case
         criticality[line_removal + 1] = criticality[line_removal + 1] + (length(nodes) * crit / crit_base)
       }
     }
   }
+  # divide by number of nodes in case of multiple islands
   criticality[line_removal + 1] = criticality[line_removal + 1] / total_nodes
+  # inverse criticality
   criticality[line_removal + 1] = 1 - criticality[line_removal + 1]
 }
 
