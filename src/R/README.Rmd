@@ -438,21 +438,21 @@ First we evaluate the departure in feasibility for four test cases. We remove br
 
 ```{r test.feasibility, fig.height=10, fig.width=15, echo=FALSE}
 par(mfrow=c(2,2))
-dept <- eval.feasibility(busdat,gendat,branchdat,20)
+dept <- eval.balance.dev(busdat,gendat,branchdat,20)
 hist(dept,xlab="Departure",ylab="Density",freq = FALSE,
      breaks=100,col='pink',
      main="Histogram of departure from feasibility with branch 20 removed")
 
-dept <- eval.feasibility(busdat,gendat,branchdat,27)
+dept <- eval.balance.dev(busdat,gendat,branchdat,27)
 hist(dept,xlab="Departure",ylab="Density",freq = FALSE,
      breaks=100,col='violet',
      main="Histogram of departure from feasibility with branch 27 removed")
-dept <- eval.feasibility(busdat,gendat,branchdat,1)
+dept <- eval.balance.dev(busdat,gendat,branchdat,1)
 hist(dept,xlab="Departure",ylab="Density",freq = FALSE,
      breaks=100,col='cyan',
      main="Histogram of departure from feasibility with branch 1 removed")
 
-dept <- eval.feasibility(busdat,gendat,branchdat,43)
+dept <- eval.balance.dev(busdat,gendat,branchdat,43)
 hist(dept,xlab="Departure",ylab="Density",freq = FALSE,
      breaks=100,col='green',
      main="Histogram of departure from feasibility with branch 43 removed")

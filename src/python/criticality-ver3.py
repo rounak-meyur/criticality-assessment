@@ -214,7 +214,7 @@ edge_meanbaldev = nx.get_edge_attributes(G,'balanceMAD')
 edge_medianbaldev = nx.get_edge_attributes(G,'balanceMedAD')
 edgelist = list(G.edges(keys=True))
 top_critical = [e for e in edge_crit if edge_crit[e]>0.75]
-top_balance_dev = [e for e in edge_crit if edge_medianbaldev[e]>4.0]
+top_balance_dev = [e for e in edge_crit if edge_medianbaldev[e]>0.01]
 rating = nx.get_edge_attributes(G,'rating')
 
 #%% Plot the network
@@ -224,11 +224,12 @@ ax=fig.add_subplot(111)
 ewidth = []
 ecolor = []
 for e in edgelist:
+    ewidth.append(edge_medianbaldev[e])
     if e in top_balance_dev:
-        ewidth.append(10)
+        # ewidth.append(10)
         ecolor.append('crimson')
     else:
-        ewidth.append(1)
+        # ewidth.append(1)
         ecolor.append('black')
 
 # Color/size by load and generation
@@ -249,7 +250,7 @@ for n in nodelist:
 
 nx.draw_networkx(G,with_labels=False,ax=ax,pos=buses.cord,node_size=nsize,
                  node_color=ncolor,edgelist=edgelist,width=ewidth,style='dashed',
-                 edge_color=ecolor,connectionstyle='arc3,rad=-3.0')
+                 edge_color=ecolor)
 ax.tick_params(left=False,bottom=False,labelleft=False,labelbottom=False)
 
 leglines = [Line2D([0], [0], color='black', markerfacecolor='white', marker='*',
@@ -314,7 +315,7 @@ for n in nodelist:
 
 
 
-nx.draw_networkx(new_graph,with_labels=False,ax=ax,pos=buses.cord,node_size=nsize,
+nx.draw_networkx(new_graph,with_labels=False,ax=ax,pos=buses.cord,node_size=0.0,
                  node_color=ncolor,edgelist=edgelist,width=ewidth,style='solid',
                  edge_color=ecolor,connectionstyle='arc3,rad=-3.0')
 ax.tick_params(left=False,bottom=False,labelleft=False,labelbottom=False)
@@ -343,5 +344,17 @@ for pol in state_polygon:
     ax.plot(x,y,'y--')
 
 
+#%% Balance deviation causality
+edgelist = list(G.edges(keys=True))
+node_mismatch = [sum([pinj[n] for n in list(get_neighbors(G,e,n=0))]) \
+                 for e in edgelist]
+bal_dev_1 = [edge_medianbaldev[e] for e in edgelist]
+node_bal_mismatch = [sum([pinj[n] for n in list(get_neighbors(G,e,n=0))]) \
+                     for e in top_balance_dev]
+bal_dev_2 = [edge_medianbaldev[e] for e in top_balance_dev]
 
+fig=plt.figure(figsize=(5,5))
+ax=fig.add_subplot(111)
 
+ax.scatter(node_mismatch,bal_dev_1,c='b',marker='+',s=1.0)
+ax.scatter(node_bal_mismatch,bal_dev_2,c='r',marker='*',s=5.0)
