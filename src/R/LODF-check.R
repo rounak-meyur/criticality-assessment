@@ -76,10 +76,14 @@ eval.overloads <- function(i)
   # flow.buffer <- flow.rate-flow.mean
   L <- make.LODF(busdat,branchdat)
   LODF.interest <- L[,i]
+  print(sort.int(LODF.interest,index.return=TRUE,
+                 decreasing=TRUE)$ix[1:3])
   # flow.cont <- flow.mean[i]
   # 
   # rhs <- abs(flow.cont)*abs(LODF.interest)
   lhs <- flow.mean + LODF.interest*flow.mean[i]
+  print(sort.int(abs(lhs)/flow.rate,index.return=TRUE,
+                 decreasing=TRUE)$ix[1:3])
   # check <- flow.buffer-rhs
   check <- flow.rate - abs(lhs)
   
@@ -101,15 +105,15 @@ print(over.3007)
 
 
 
-# Check individually
-ind = 3007
-flowdat <- read.csv(file.path(result.dir,
-                              paste("flows_1.5_",toString(ind),
-                                    ".csv",sep="")))
-flow.check <- as.matrix(flowdat[ind,])
-L <- make.LODF(busdat,branchdat)
-LODF.check <- as.matrix(L[,ind])
-redistributed.flow <- LODF.check%*%flow.check
-post.flow.check <- flowdat+redistributed.flow
-flow.rate <- repcol(1.5*branchdat$rateA/100.0,1000)
-flag.check <- 
+# # Check individually
+# ind = 3007
+# flowdat <- read.csv(file.path(result.dir,
+#                               paste("flows_1.5_",toString(ind),
+#                                     ".csv",sep="")))
+# flow.check <- as.matrix(flowdat[ind,])
+# L <- make.LODF(busdat,branchdat)
+# LODF.check <- as.matrix(L[,ind])
+# redistributed.flow <- LODF.check%*%flow.check
+# post.flow.check <- flowdat+redistributed.flow
+# flow.rate <- repcol(1.5*branchdat$rateA/100.0,1000)
+# flag.check <- 

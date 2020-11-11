@@ -121,20 +121,22 @@ overloaded = {}
 
 # cont = [85,87,464,3007]
 # cont = [50,85,87,93,114,116,400,432,464,1773,1774,2058,2101,3007]
-fig = plt.figure(figsize=(20,20))
+# fig = plt.figure(figsize=(20,20))
 
+#%% Various thresholds
+thresh = 500
 for i,c in enumerate(cont):
-    ax = fig.add_subplot(2,2,i+1)
+    # ax = fig.add_subplot(2,2,i+1)
     filename = 'results_'+str(K)+'_'+str(c+1)+'.csv'
     D = genfromtxt(resultpath+filename, delimiter=',',skip_header=1)
     D[c,:] = np.zeros(shape=(1,1000))
-    ind = np.where(np.sum(D,1)>200)[0].tolist()
+    ind = np.where(np.sum(D,1)>thresh)[0].tolist()
     overloaded[c+1] = [j+1 for j in ind]
-    ax.spy(D.T,markersize=2,color='red')
-    ax.tick_params(left=False,top=False,labelleft=False,labeltop=False)
-    ax.set_ylabel("Scenarios")
-    ax.set_xlabel("Lines")
-    fig.savefig("{}{}.png".format(figpath,figfile),bbox_inches='tight')
+    # ax.spy(D.T,markersize=2,color='red')
+    # ax.tick_params(left=False,top=False,labelleft=False,labeltop=False)
+    # ax.set_ylabel("Scenarios")
+    # ax.set_xlabel("Lines")
+    # fig.savefig("{}{}.png".format(figpath,figfile),bbox_inches='tight')
 
 print(overloaded)
 

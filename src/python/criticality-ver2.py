@@ -167,9 +167,28 @@ def getgendata(path,filename):
             else: dict_gen[i+1]={'bus':int(data[0]),'cap':float(data[8])}
     return dict_gen,condenser
 
+def get_edgelist(path,filename):
+    e_count = {}
+    edgelist = []
+    with open(path+filename,'r') as file:
+        for i,temp in enumerate(file.readlines()[1:]):
+            data = temp.strip('\n').split(',')
+            edge = (int(data[0]),int(data[1]))
+            if edge not in e_count and tuple(list(edge)[::-1]) not in e_count:
+                e_count[edge] = 1
+                e = (int(data[0]),int(data[1]),str(e_count[edge]))
+            elif edge in e_count: 
+                e_count[edge] += 1
+                e = (int(data[0]),int(data[1]),str(e_count[edge]))
+            else: 
+                e_count[tuple(list(edge)[::-1])] += 1
+                e = (int(data[0]),int(data[1]),str(e_count[tuple(list(edge)[::-1])]))
+            edgelist.append(e)
+    return edgelist
+
 
 #%% Extract information
-K = 1.25
+K = 1.5
 buses = getbusdat(datapath,'bus-dat.txt','busdat.csv')
 G = createnetwork(datapath,'branchdat.csv','criticality_base_'+str(K)+'_2.csv')
 GEN,synch_cond = getgendata(datapath,'gendat.csv')
@@ -196,9 +215,31 @@ nx.set_node_attributes(G,pinj,'power')
 
 # edge attributes
 edge_crit = nx.get_edge_attributes(G,'criticality')
-edgelist = list(G.edges(keys=True))
+# edgelist = list(G.edges(keys=True))
+all_edges = get_edgelist(datapath,'branchdat.csv')
 top_critical = [e for e in edge_crit if edge_crit[e]>0.75]
+cont = sorted([all_edges.index(edge) if edge in all_edges \
+        else all_edges.index((edge[1],edge[0],edge[2])) \
+            for edge in top_critical])
 rating = nx.get_edge_attributes(G,'rating')
+
+#%% Data obtained from R code
+## top LODF lines
+top_lodf = {84:[86,115,33],86:[84,34,65],
+            463:[460,2046,2047],3006:[3154,3167,3004]}
+top_olf = {84:[34,33,57],86:[34,33,57],
+            463:[460,34,2135],3006:[3047,3073,34]}
+top_scenario = {84:[33,34],86:[33,34,57],463:[34,460],3006:[3046,3047,3073]}
+
+i = 3
+z = 1.2
+a = 1
+m=5
+cont_id = cont[i]
+critical = all_edges[cont_id]
+t_lodf = [all_edges[j] for j in top_lodf[cont_id]]
+t_olf = [all_edges[j] for j in top_olf[cont_id]]
+t_sce = [all_edges[j] for j in top_scenario[cont_id]]
 
 #%% Plot the network
 fig=plt.figure(figsize=(50,50))
@@ -206,13 +247,21 @@ ax=fig.add_subplot(111)
 
 ewidth = []
 ecolor = []
-for e in edgelist:
-    if e in top_critical:
+for e in all_edges:
+    alt_e = (e[1],e[0],e[2])
+    if (e == critical) or (alt_e == critical):
         # ewidth.append(rating[e]/1000.0)
         ewidth.append(10)
         ecolor.append('crimson')
+    # elif (e in t_olf) or (alt_e in t_olf):
+    #     ewidth.append(10)
+    #     ecolor.append('orchid')
+    # elif (e in t_lodf) or (alt_e in t_lodf):
+    #     ewidth.append(10)
+    #     ecolor.append('darkgreen')
     else:
-        ewidth.append(rating[e]/1000.0)
+        # ewidth.append(rating[e]/1000.0)
+        ewidth.append(0.1)
         ecolor.append('black')
 
 # Color/size by load and generation
@@ -233,27 +282,32 @@ for n in nodelist:
 
 
 nx.draw_networkx(G,with_labels=False,ax=ax,pos=buses.cord,node_size=nsize,
-                 node_color=ncolor,edgelist=edgelist,width=ewidth,style='dashed',
+                 node_color=ncolor,edgelist=all_edges,width=ewidth,style='dashed',
                  edge_color=ecolor,connectionstyle='arc3,rad=-3.0')
 ax.tick_params(left=False,bottom=False,labelleft=False,labelbottom=False)
 
-leglines = [Line2D([0], [0], color='black', markerfacecolor='white', marker='*',
-                   markersize=0,linestyle='dashed'),
-            Line2D([0], [0], color='crimson', markerfacecolor='white', marker='*',
-                   markersize=0,linestyle='dashed'),
+leglines = [Line2D([0], [0], color='crimson', markerfacecolor='white', marker='*',
+                   markersize=0,linestyle='dashed',linewidth=10),
             Line2D([0], [0], color='white', markerfacecolor='lightsalmon', 
                    marker='o',markersize=25),
             Line2D([0], [0], color='white', markerfacecolor='royalblue', marker='o',
                    markersize=25),
-            Line2D([0], [0], color='white', markerfacecolor='limegreen', marker='o',
-                   markersize=25)]
+            Line2D([0], [0], color='black', markerfacecolor='white', marker='*',
+                   markersize=0,linestyle='dashed',linewidth=10),
+            Line2D([0], [0], color='green', markerfacecolor='white', marker='*',
+                   markersize=0,linestyle='dashed',linewidth=10),
+            Line2D([0], [0], color='orchid', markerfacecolor='white', marker='*',
+                   markersize=0,linestyle='dashed',linewidth=10),
+            Line2D([0], [0], color='blue', markerfacecolor='white', marker='*',
+                   markersize=0,linestyle='dashed',linewidth=10)]
 
-labels = ['transmission lines', 'top critical edges', 'generator buses', 
-          'load buses', 'zero power injection buses']
+labels = ['line outage contingency', 'generator buses', 'load buses',
+          'transmission lines','lines with high LODF',
+          'lines with high overload factor','overloaded lines in random scenarios']
 
-ax.legend(leglines,labels,loc='best',ncol=1,prop={'size': 25})
+ax.legend(leglines,labels,loc='best',ncol=1,prop={'size': 45})
 ax.set_title('Synthetic power grid of Texas with identified critical lines',
-             fontsize=25)
+             fontsize=50)
 
 
 for pol in state_polygon:
@@ -265,7 +319,7 @@ for pol in state_polygon:
 
 #%% Examine individual contingency
 
-def draw_subnetwork(ax,graph,edge_interest,n=4):
+def draw_subnetwork_top(ax,graph,edge_interest,n=4):
     """
     Creates the sub network from the original network which just includes the
     neighbors of the interesting edge. The figure displays the rating of the
@@ -299,13 +353,21 @@ def draw_subnetwork(ax,graph,edge_interest,n=4):
     ecolor = []
     for e in edgelist_inset:
         alt_e = (e[1],e[0],e[2])
-        if e in top_critical or alt_e in top_critical:
-            if e in rate: ewidth.append(rate[e]/200.0)
-            else: ewidth.append(rate[alt_e]/200.0)
+        if e == critical or alt_e == critical:
+            ewidth.append(10)
+            # if e in rate: ewidth.append(rate[e]/200.0)
+            # else: ewidth.append(rate[alt_e]/200.0)
             ecolor.append('crimson')
+        elif (e in t_olf) or (alt_e in t_olf):
+            ewidth.append(10)
+            ecolor.append('orchid')
+        elif (e in t_lodf) or (alt_e in t_lodf):
+            ewidth.append(10)
+            ecolor.append('darkgreen')
         else:
-            if e in rate: ewidth.append(rate[e]/200.0)
-            else: ewidth.append(rate[alt_e]/200.0)
+            ewidth.append(3)
+            # if e in rate: ewidth.append(rate[e]/200.0)
+            # else: ewidth.append(rate[alt_e]/200.0)
             ecolor.append('black')
     
     # Color/size by load and generation
@@ -313,23 +375,101 @@ def draw_subnetwork(ax,graph,edge_interest,n=4):
     ncolor = []
     for n in nodelist_inset:
         if p_inj[n]>0.0:
-            nsize.append(p_inj[n]/2.0)
+            nsize.append(p_inj[n]/1.0)
             ncolor.append('lightsalmon')
         elif p_inj[n]<0.0:
-            nsize.append(-p_inj[n]/2.0)
+            nsize.append(-p_inj[n]/1.0)
             ncolor.append('royalblue')
         else:
-            nsize.append(1.0)
+            nsize.append(2.0)
             ncolor.append('limegreen')
     
-    elabel={(r[0],r[1]):rate[r] for r in rate \
-            if r in edgelist_inset or (r[1],r[0],r[2]) in edgelist_inset}
+    # elabel={(r[0],r[1]):rate[r] for r in rate \
+    #         if r in edgelist_inset or (r[1],r[0],r[2]) in edgelist_inset}
     nx.draw_networkx(interest,with_labels=False,ax=ax,nodelist=nodelist_inset,
                      pos=buses.cord,node_size=nsize,node_color=ncolor,
                      edgelist=edgelist_inset,width=ewidth,style='dashed',
                      edge_color=ecolor)
-    nx.draw_networkx_edge_labels(interest,ax=ax,pos=buses.cord,edge_labels=elabel,
-                                 font_weight='normal',font_size=25)
+    # nx.draw_networkx_edge_labels(interest,ax=ax,pos=buses.cord,edge_labels=elabel,
+    #                              font_weight='normal',font_size=25)
+    
+    
+    ax.set_xlim(min(xpts),max(xpts))
+    ax.set_ylim(min(ypts),max(ypts))
+    ax.tick_params(bottom=False,left=False,labelleft=False,labelbottom=False)
+    return ax
+
+
+def draw_subnetwork_bottom(ax,graph,edge_interest,n=4):
+    """
+    Creates the sub network from the original network which just includes the
+    neighbors of the interesting edge. The figure displays the rating of the
+    lines in the neighborhood of the critical line.
+
+    Parameters
+    ----------
+    ax : matplotlib axes object
+        The axes on which the networkx network would be plotted.
+    graph: networkx MultiGraph object
+        The networkx graph representing the power grid network.
+    n : integer, optional
+        Number of hops to consider from the interesting edge.. The default is 4.
+
+    Returns
+    -------
+    ax : matplotlib axes object
+        The axes on which the networkx network would be plotted.
+
+    """
+    rate = nx.get_edge_attributes(graph,'rating')
+    p_inj = nx.get_node_attributes(graph,'power')
+    interest = get_neighbors(graph,edge_interest,n)
+    xpts = [buses.cord[n][0] for n in list(interest.nodes())]
+    ypts = [buses.cord[n][1] for n in list(interest.nodes())]
+    
+    # Color by rating
+    edgelist_inset = list(interest.edges(keys=True))
+    nodelist_inset = list(interest.nodes())
+    ewidth = []
+    ecolor = []
+    for e in edgelist_inset:
+        alt_e = (e[1],e[0],e[2])
+        if e == critical or alt_e == critical:
+            ewidth.append(10)
+            # if e in rate: ewidth.append(rate[e]/200.0)
+            # else: ewidth.append(rate[alt_e]/200.0)
+            ecolor.append('crimson')
+        elif (e in t_sce) or (alt_e in t_sce):
+            ewidth.append(10)
+            ecolor.append('blue')
+        else:
+            ewidth.append(3)
+            # if e in rate: ewidth.append(rate[e]/200.0)
+            # else: ewidth.append(rate[alt_e]/200.0)
+            ecolor.append('black')
+    
+    # Color/size by load and generation
+    nsize = []
+    ncolor = []
+    for n in nodelist_inset:
+        if p_inj[n]>0.0:
+            nsize.append(p_inj[n]/1.0)
+            ncolor.append('lightsalmon')
+        elif p_inj[n]<0.0:
+            nsize.append(-p_inj[n]/1.0)
+            ncolor.append('royalblue')
+        else:
+            nsize.append(2.0)
+            ncolor.append('limegreen')
+    
+    # elabel={(r[0],r[1]):rate[r] for r in rate \
+    #         if r in edgelist_inset or (r[1],r[0],r[2]) in edgelist_inset}
+    nx.draw_networkx(interest,with_labels=False,ax=ax,nodelist=nodelist_inset,
+                     pos=buses.cord,node_size=nsize,node_color=ncolor,
+                     edgelist=edgelist_inset,width=ewidth,style='dashed',
+                     edge_color=ecolor)
+    # nx.draw_networkx_edge_labels(interest,ax=ax,pos=buses.cord,edge_labels=elabel,
+    #                              font_weight='normal',font_size=25)
     
     
     ax.set_xlim(min(xpts),max(xpts))
@@ -340,18 +480,24 @@ def draw_subnetwork(ax,graph,edge_interest,n=4):
 
 
 from mpl_toolkits.axes_grid1.inset_locator import zoomed_inset_axes, mark_inset
-axins = zoomed_inset_axes(ax, 1.5, loc=3)
-axins.set_aspect(1)
-axins = draw_subnetwork(axins,G,top_critical[0],n=3)
-mark_inset(ax, ax, loc1=1, loc2=2, fc="none", ec="0.5")
-figname = 'top-critical-edgewt-inset'
+axins1 = zoomed_inset_axes(ax, z, loc=2)
+axins1.set_aspect(a)
+axins1 = draw_subnetwork_top(axins1,G,critical,n=m)
+mark_inset(ax, axins1, loc1=1, loc2=3, fc="none", ec="0.5")
+axins2 = zoomed_inset_axes(ax, z, loc=3)
+axins2.set_aspect(a)
+axins2 = draw_subnetwork_bottom(axins2,G,critical,n=m)
+mark_inset(ax, axins2, loc1=2, loc2=4, fc="none", ec="0.5")
+figname = 'top-critical-edgewt-inset'+str(cont_id+1)
 fig.savefig("{}{}.png".format(figpath,figname),bbox_inches='tight')
 
-fig=plt.figure(figsize=(50,50))
-ax=fig.add_subplot(111)
-ax = draw_subnetwork(ax,G,top_critical[0],n=3)
-figname = 'top-critical-edgewt-solo'
-fig.savefig("{}{}.png".format(figpath,figname),bbox_inches='tight')
+# fig=plt.figure(figsize=(50,50))
+# ax=fig.add_subplot(111)
+# ax = draw_subnetwork(ax,G,top_critical[0],n=3)
+# figname = 'top-critical-edgewt-solo'
+# fig.savefig("{}{}.png".format(figpath,figname),bbox_inches='tight')
+
+sys.exit(0)
 
 #%% Get edge indices
 # Get edgelist and ratings

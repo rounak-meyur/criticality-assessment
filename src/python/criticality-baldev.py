@@ -217,6 +217,8 @@ top_critical = [e for e in edge_crit if edge_crit[e]>0.75]
 top_balance_dev = [e for e in edge_crit if edge_medianbaldev[e]>0.01]
 rating = nx.get_edge_attributes(G,'rating')
 
+
+
 #%% Plot the network
 fig=plt.figure(figsize=(50,50))
 ax=fig.add_subplot(111)
@@ -224,7 +226,7 @@ ax=fig.add_subplot(111)
 ewidth = []
 ecolor = []
 for e in edgelist:
-    ewidth.append(edge_medianbaldev[e])
+    ewidth.append(int(edge_medianbaldev[e]))
     if e in top_balance_dev:
         # ewidth.append(10)
         ecolor.append('crimson')
@@ -245,7 +247,6 @@ for n in nodelist:
     else:
         nsize.append(1.0)
         ncolor.append('limegreen')
-
 
 
 nx.draw_networkx(G,with_labels=False,ax=ax,pos=buses.cord,node_size=nsize,
@@ -346,15 +347,38 @@ for pol in state_polygon:
 
 #%% Balance deviation causality
 edgelist = list(G.edges(keys=True))
-node_mismatch = [sum([pinj[n] for n in list(get_neighbors(G,e,n=0))]) \
+node_mismatch = [abs(sum([pinj[n]/100.0 for n in list(get_neighbors(G,e,n=0))])) \
                  for e in edgelist]
-bal_dev_1 = [edge_medianbaldev[e] for e in edgelist]
-node_bal_mismatch = [sum([pinj[n] for n in list(get_neighbors(G,e,n=0))]) \
-                     for e in top_balance_dev]
-bal_dev_2 = [edge_medianbaldev[e] for e in top_balance_dev]
+bal_dev = [edge_medianbaldev[e] for e in edgelist]
+# node_bal_mismatch = [sum([pinj[n] for n in list(get_neighbors(G,e,n=0))]) \
+#                      for e in top_balance_dev]
+# bal_dev_2 = [edge_medianbaldev[e] for e in top_balance_dev]
 
-fig=plt.figure(figsize=(5,5))
+num_comp = {}
+for e in edgelist:
+    net = G.copy()
+    net.remove_edge(*e)
+    num_comp[e] = nx.number_connected_components(net)
+
+
+#%% Plot the causality
+fig=plt.figure(figsize=(20,12))
 ax=fig.add_subplot(111)
+n1 = []; n2 = []
+b1 = []; b2 = []
 
-ax.scatter(node_mismatch,bal_dev_1,c='b',marker='+',s=1.0)
-ax.scatter(node_bal_mismatch,bal_dev_2,c='r',marker='*',s=5.0)
+for i,e in enumerate(edgelist):
+    if num_comp[e]==1:
+        n1.append(node_mismatch[i])
+        b1.append(bal_dev[i])
+    else:
+        n2.append(node_mismatch[i])
+        b2.append(bal_dev[i])
+
+ax.scatter(n1,b1,c='b',marker='+',s=50.0,label='Single connected component')
+ax.scatter(n2,b2,c='r',marker='+',s=50.0,label='Isolated components/nodes')
+ax.set_xlabel("Load-generation mismatch between disconnected nodes",fontsize=25)
+ax.set_ylabel("Load-generation mismatch in the network",fontsize=25)
+ax.legend(loc='best',prop={'size': 20})
+fig.savefig("{}{}.png".format(figpath,'balance-dev-causality'),
+            bbox_inches='tight')
